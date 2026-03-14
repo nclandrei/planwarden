@@ -6,6 +6,13 @@ use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use planwarden::plan_file::{extract_plan_from_json, next_chunk, set_status, write_plan_file};
 use planwarden::review::{PlanItemStatus, PlanKind, ReviewRequest, review_request};
+use planwarden::schema::{render_review_schema_text, review_schema};
+
+const REVIEW_ROADMAP_AFTER_HELP: &str = "Run `planwarden schema review roadmap` to inspect the contract before building the JSON payload.";
+const REVIEW_TASK_AFTER_HELP: &str =
+    "Run `planwarden schema review task` to inspect the contract before building the JSON payload.";
+const CREATE_AFTER_HELP: &str =
+    "Input can be either the full `review` response JSON or only the `normalized_plan` object.";
 
 #[derive(Debug, Parser)]
 #[command(name = "planwarden")]
@@ -17,63 +24,115 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    #[command(about = "Validate planning input and return decision/missing/questions/pushback.")]
     Review {
         #[command(subcommand)]
         kind: ReviewCommand,
     },
+    #[command(about = "Show the review contract so an agent knows what JSON to send.")]
+    Schema {
+        #[command(subcommand)]
+        kind: SchemaCommand,
+    },
+    #[command(about = "Write a durable markdown plan file from normalized review output.")]
     Create {
         #[command(subcommand)]
         kind: CreateCommand,
     },
+    #[command(about = "Show only the next incomplete plan items.")]
     Next(NextArgs),
+    #[command(about = "Update one checklist item to todo, in_progress, or done.")]
     SetStatus(SetStatusArgs),
 }
 
 #[derive(Debug, Subcommand)]
 enum ReviewCommand {
+    #[command(about = "Validate a big-picture roadmap request.")]
+    #[command(after_long_help = REVIEW_ROADMAP_AFTER_HELP)]
     Roadmap(InputArgs),
+    #[command(about = "Validate a single execution-slice task request.")]
+    #[command(after_long_help = REVIEW_TASK_AFTER_HELP)]
     Task(InputArgs),
 }
 
 #[derive(Debug, Subcommand)]
+enum SchemaCommand {
+    #[command(about = "Show the input contract for `planwarden review`.")]
+    Review {
+        #[command(subcommand)]
+        kind: SchemaReviewCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SchemaReviewCommand {
+    #[command(about = "Show the roadmap review contract.")]
+    Roadmap(SchemaArgs),
+    #[command(about = "Show the task review contract.")]
+    Task(SchemaArgs),
+}
+
+#[derive(Debug, Subcommand)]
 enum CreateCommand {
+    #[command(about = "Write a roadmap markdown file from review output.")]
+    #[command(after_long_help = CREATE_AFTER_HELP)]
     Roadmap(CreateArgs),
+    #[command(about = "Write a task markdown file from review output.")]
+    #[command(after_long_help = CREATE_AFTER_HELP)]
     Task(CreateArgs),
 }
 
 #[derive(Debug, Args)]
 struct InputArgs {
+    /// Read review request JSON from a file instead of stdin.
     #[arg(long, short)]
     input: Option<PathBuf>,
+    /// Emit compact JSON instead of pretty-printed JSON.
     #[arg(long)]
     compact: bool,
 }
 
 #[derive(Debug, Args)]
 struct CreateArgs {
+    /// Read review response JSON or normalized plan JSON from a file instead of stdin.
     #[arg(long, short)]
     input: Option<PathBuf>,
+    /// Write the markdown plan to this path instead of the default plans/ path.
     #[arg(long, short)]
     output: Option<PathBuf>,
+    /// Emit compact JSON instead of pretty-printed JSON.
     #[arg(long)]
     compact: bool,
 }
 
 #[derive(Debug, Args)]
+struct SchemaArgs {
+    /// Choose human-readable text or machine-readable JSON output.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    format: OutputFormat,
+}
+
+#[derive(Debug, Args)]
 struct NextArgs {
+    /// Path to a markdown plan file created by Planwarden.
     plan_file: PathBuf,
+    /// Maximum number of incomplete items to return.
     #[arg(long, default_value_t = 3)]
     limit: usize,
+    /// Emit compact JSON instead of pretty-printed JSON.
     #[arg(long)]
     compact: bool,
 }
 
 #[derive(Debug, Args)]
 struct SetStatusArgs {
+    /// Path to a markdown plan file created by Planwarden.
     plan_file: PathBuf,
+    /// The checklist item ID to update, such as R1 or T2.
     item_id: String,
     #[arg(value_enum)]
     status: CliStatus,
+    /// Emit compact JSON instead of pretty-printed JSON.
     #[arg(long)]
     compact: bool,
 }
@@ -83,6 +142,12 @@ enum CliStatus {
     Todo,
     InProgress,
     Done,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum OutputFormat {
+    Text,
+    Json,
 }
 
 impl From<CliStatus> for PlanItemStatus {
@@ -117,6 +182,19 @@ fn run() -> Result<()> {
             let response = review_request(plan_kind, request);
             print_json(&response, args.compact)?;
         }
+        Command::Schema { kind } => match kind {
+            SchemaCommand::Review { kind } => {
+                let (plan_kind, args) = match kind {
+                    SchemaReviewCommand::Roadmap(args) => (PlanKind::Roadmap, args),
+                    SchemaReviewCommand::Task(args) => (PlanKind::Task, args),
+                };
+                let schema = review_schema(plan_kind);
+                match args.format {
+                    OutputFormat::Text => println!("{}", render_review_schema_text(&schema)),
+                    OutputFormat::Json => print_json(&schema, false)?,
+                }
+            }
+        },
         Command::Create { kind } => {
             let (expected_kind, args) = match kind {
                 CreateCommand::Roadmap(args) => ("roadmap", args),

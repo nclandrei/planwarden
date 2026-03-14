@@ -41,6 +41,7 @@ Examples:
 - [x] Add initial rules for rollback, tests, security, auth, authz, decoupling, and unresolved unknowns.
 - [x] Add bugfix enforcement: no final plan without explicit red-proof metadata.
 - [x] Add tests for JSON parsing, rule evaluation, and markdown rendering.
+- [x] Add self-describing schema/help output so agents can learn the review contract from the CLI.
 - [ ] Package the CLI for personal Homebrew install.
 
 ## First Command Set
