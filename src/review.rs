@@ -126,7 +126,7 @@ pub struct Issue {
     pub field: Option<String>,
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ReviewQuestion {
     pub code: String,
     pub prompt: String,
@@ -174,6 +174,8 @@ pub struct NormalizedPlan {
     pub acceptance_criteria: Vec<String>,
     pub risks: Vec<String>,
     pub concerns: ReviewConcerns,
+    #[serde(default)]
+    pub open_questions: Vec<ReviewQuestion>,
     pub items: Vec<NormalizedPlanItem>,
 }
 
@@ -400,6 +402,8 @@ pub fn review_request(kind: PlanKind, request: ReviewRequest) -> ReviewResponse 
         }
     }
 
+    let normalized_plan = normalize_plan(kind, &request, &questions);
+
     let decision = if !pushback.is_empty() {
         ReviewDecision::Blocked
     } else if !missing.is_empty() || !questions.is_empty() {
@@ -413,11 +417,15 @@ pub fn review_request(kind: PlanKind, request: ReviewRequest) -> ReviewResponse 
         missing,
         questions,
         pushback,
-        normalized_plan: normalize_plan(kind, request),
+        normalized_plan,
     }
 }
 
-fn normalize_plan(kind: PlanKind, request: ReviewRequest) -> NormalizedPlan {
+fn normalize_plan(
+    kind: PlanKind,
+    request: &ReviewRequest,
+    questions: &[ReviewQuestion],
+) -> NormalizedPlan {
     let title = request
         .title
         .as_deref()
@@ -427,28 +435,30 @@ fn normalize_plan(kind: PlanKind, request: ReviewRequest) -> NormalizedPlan {
 
     let items = request
         .proposed_slices
+        .iter()
         .into_iter()
         .enumerate()
         .map(|(index, slice)| NormalizedPlanItem {
             id: format!("{}{}", kind.id_prefix(), index + 1),
             status: PlanItemStatus::Todo,
-            title: slice.title,
-            summary: slice.summary,
+            title: slice.title.clone(),
+            summary: slice.summary.clone(),
             estimated_minutes: slice.estimated_minutes,
-            dependencies: slice.dependencies,
-            acceptance_criteria: slice.acceptance_criteria,
+            dependencies: slice.dependencies.clone(),
+            acceptance_criteria: slice.acceptance_criteria.clone(),
         })
         .collect();
 
     NormalizedPlan {
         kind: kind.into(),
         title,
-        goal: request.goal,
-        facts: request.facts,
-        constraints: request.constraints,
-        acceptance_criteria: request.acceptance_criteria,
-        risks: request.risks,
-        concerns: request.concerns,
+        goal: request.goal.clone(),
+        facts: request.facts.clone(),
+        constraints: request.constraints.clone(),
+        acceptance_criteria: request.acceptance_criteria.clone(),
+        risks: request.risks.clone(),
+        concerns: request.concerns.clone(),
+        open_questions: questions.to_vec(),
         items,
     }
 }
@@ -598,6 +608,7 @@ mod tests {
 
         assert_eq!(response.decision, ReviewDecision::NeedsInput);
         assert_eq!(response.questions.len(), 1);
+        assert_eq!(response.normalized_plan.open_questions.len(), 1);
         assert!(
             response
                 .missing

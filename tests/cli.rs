@@ -260,6 +260,103 @@ fn next_respects_limit_and_status_updates() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"id\":\"R2\""))
-        .stdout(predicate::str::contains("\"items\":["));
+        .stdout(predicate::str::contains("\"focus\":{\"id\":\"R2\""))
+        .stdout(predicate::str::contains("\"remaining_items\":0"));
+}
+
+#[test]
+fn next_text_output_is_chunked_and_includes_questions() {
+    let temp = tempfile::tempdir().expect("tempdir should be created");
+    let payload = r#"
+    {
+      "title": "Chunk demo",
+      "goal": "Demonstrate chunked output.",
+      "facts": ["Repo already has the core primitives."],
+      "constraints": ["Keep output short."],
+      "acceptance_criteria": ["The next command shows focus, up next, and questions."],
+      "unknowns": ["Should owners and admins both approve the plan?"],
+      "risks": ["Chunk output could regress into a wall of text."],
+      "signals": {
+        "bugfix": false,
+        "user_visible": true,
+        "touches_authentication": false,
+        "touches_authorization": true,
+        "touches_sensitive_data": false,
+        "touches_external_boundary": false,
+        "touches_database_schema": false,
+        "cross_cutting_change": false
+      },
+      "proposed_slices": [
+        {
+          "title": "Focus slice",
+          "summary": "Do the current thing.",
+          "estimated_minutes": 30,
+          "dependencies": [],
+          "acceptance_criteria": ["Current thing works."]
+        },
+        {
+          "title": "Follow-up slice",
+          "summary": "Do the next thing.",
+          "estimated_minutes": 30,
+          "dependencies": ["R1"],
+          "acceptance_criteria": ["Next thing works."]
+        }
+      ],
+      "concerns": {
+        "rollback": {"applicable": true, "approach": "Revert the changes."},
+        "security": {"applicable": false, "reason": "No security boundary changes."},
+        "authentication": {"applicable": false, "reason": "No auth changes."},
+        "authorization": {"applicable": true, "approach": "Keep plan access limited to the right roles."},
+        "decoupling": {"applicable": true, "approach": "Keep planning output isolated from execution details."},
+        "tests": {
+          "unit": {"applicable": true, "approach": "Test chunk selection."},
+          "integration": {"applicable": true, "approach": "Test the CLI flow end to end."},
+          "regression": {"applicable": true, "approach": "Protect chunk rendering."},
+          "smoke": {"applicable": true, "approach": "Run a real CLI round-trip."}
+        },
+        "bugfix_red": {"applicable": false, "reason": "This is not a bug fix."}
+      }
+    }
+    "#;
+
+    let review_output = binary()
+        .current_dir(temp.path())
+        .args(["review", "roadmap", "--compact"])
+        .write_stdin(payload)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let create_output = binary()
+        .current_dir(temp.path())
+        .args(["create", "roadmap", "--compact"])
+        .write_stdin(review_output)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let response: Value =
+        serde_json::from_slice(&create_output).expect("create output should be valid JSON");
+    let path = temp.path().join(
+        response["path"]
+            .as_str()
+            .expect("create output should include a path"),
+    );
+
+    binary()
+        .args([
+            "next",
+            path.to_str().expect("utf8 path"),
+            "--format",
+            "text",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Focus"))
+        .stdout(predicate::str::contains("Up Next"))
+        .stdout(predicate::str::contains("Open Questions"))
+        .stdout(predicate::str::contains("unknown_1"));
 }

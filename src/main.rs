@@ -4,7 +4,9 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use planwarden::plan_file::{extract_plan_from_json, next_chunk, set_status, write_plan_file};
+use planwarden::plan_file::{
+    extract_plan_from_json, next_chunk, render_next_chunk_text, set_status, write_plan_file,
+};
 use planwarden::review::{PlanItemStatus, PlanKind, ReviewRequest, review_request};
 use planwarden::schema::{render_review_schema_text, review_schema};
 
@@ -119,6 +121,9 @@ struct NextArgs {
     /// Maximum number of incomplete items to return.
     #[arg(long, default_value_t = 3)]
     limit: usize,
+    /// Choose human-readable text or machine-readable JSON output.
+    #[arg(long, value_enum, default_value_t = OutputFormat::Json)]
+    format: OutputFormat,
     /// Emit compact JSON instead of pretty-printed JSON.
     #[arg(long)]
     compact: bool,
@@ -213,7 +218,10 @@ fn run() -> Result<()> {
         }
         Command::Next(args) => {
             let response = next_chunk(&args.plan_file, args.limit)?;
-            print_json(&response, args.compact)?;
+            match args.format {
+                OutputFormat::Text => println!("{}", render_next_chunk_text(&response)),
+                OutputFormat::Json => print_json(&response, args.compact)?,
+            }
         }
         Command::SetStatus(args) => {
             let response = set_status(&args.plan_file, &args.item_id, args.status.into())?;
