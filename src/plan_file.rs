@@ -358,4 +358,43 @@ mod tests {
         assert_eq!(updated.item.status, PlanItemStatus::InProgress);
         assert_eq!(loaded.items[0].status, PlanItemStatus::InProgress);
     }
+
+    #[test]
+    fn load_plan_file_rejects_missing_markers() {
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let output = temp.path().join("broken.md");
+        std::fs::write(&output, "# Broken\n\nNo embedded data here.\n")
+            .expect("broken file should write");
+
+        let error = load_plan_file(&output).expect_err("missing markers should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("plan file is missing the planwarden data start marker")
+        );
+    }
+
+    #[test]
+    fn write_plan_file_uses_slugified_default_path() {
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let original_dir = std::env::current_dir().expect("cwd should exist");
+        std::env::set_current_dir(temp.path()).expect("should enter temp dir");
+
+        let mut plan = sample_plan();
+        plan.title = "Billing Portal: MVP / Phase 1".into();
+
+        let created = write_plan_file(&plan, None).expect("plan should write");
+
+        std::env::set_current_dir(original_dir).expect("cwd should restore");
+        assert!(
+            created
+                .path
+                .ends_with("plans/roadmaps/billing-portal-mvp-phase-1.md")
+        );
+        assert!(
+            temp.path()
+                .join("plans/roadmaps/billing-portal-mvp-phase-1.md")
+                .exists()
+        );
+    }
 }

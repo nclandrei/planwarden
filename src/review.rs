@@ -661,4 +661,53 @@ mod tests {
 
         assert!(invalid.is_err());
     }
+
+    #[test]
+    fn review_request_rejects_unknown_fields() {
+        let invalid = serde_json::from_str::<ReviewRequest>(
+            r#"
+            {
+              "goal": "Test unknown field handling.",
+              "facts": [],
+              "constraints": [],
+              "acceptance_criteria": ["It works."],
+              "unknowns": [],
+              "risks": [],
+              "signals": {
+                "bugfix": false,
+                "user_visible": false,
+                "touches_authentication": false,
+                "touches_authorization": false,
+                "touches_sensitive_data": false,
+                "touches_external_boundary": false,
+                "touches_database_schema": false,
+                "cross_cutting_change": false
+              },
+              "proposed_slices": [{
+                "title": "One slice",
+                "summary": "Do one thing.",
+                "estimated_minutes": 30,
+                "acceptance_criteria": ["Still works."]
+              }],
+              "concerns": {
+                "rollback": {"applicable": true, "approach": "Revert the commit."},
+                "security": {"applicable": false, "reason": "No boundary changes."},
+                "authentication": {"applicable": false, "reason": "No auth changes."},
+                "authorization": {"applicable": false, "reason": "No permission changes."},
+                "decoupling": {"applicable": true, "approach": "Keep it isolated."},
+                "tests": {
+                  "unit": {"applicable": true, "approach": "Unit test it."},
+                  "integration": {"applicable": false, "reason": "No integration boundary."},
+                  "regression": {"applicable": false, "reason": "No user-visible change."},
+                  "smoke": {"applicable": false, "reason": "No smoke needed."}
+                },
+                "bugfix_red": {"applicable": false, "reason": "Not a bug fix."}
+              },
+              "surprise": true
+            }
+            "#,
+        );
+
+        assert!(invalid.is_err());
+    }
 }
