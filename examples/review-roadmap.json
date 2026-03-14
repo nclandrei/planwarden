@@ -1,0 +1,82 @@
+{
+  "title": "Add billing portal",
+  "goal": "Add a billing portal entry point under settings.",
+  "facts": [
+    "Stripe integration already exists."
+  ],
+  "constraints": [
+    "Must be rollbackable."
+  ],
+  "acceptance_criteria": [
+    "Users can open the billing portal from settings."
+  ],
+  "unknowns": [],
+  "risks": [
+    "Incorrect tenant mapping could expose the wrong portal session."
+  ],
+  "signals": {
+    "bugfix": false,
+    "user_visible": true,
+    "touches_authentication": false,
+    "touches_authorization": true,
+    "touches_sensitive_data": true,
+    "touches_external_boundary": true,
+    "touches_database_schema": false,
+    "cross_cutting_change": true
+  },
+  "proposed_slices": [
+    {
+      "title": "Wire settings action",
+      "summary": "Add the settings action that creates a portal session through the existing backend endpoint.",
+      "estimated_minutes": 45,
+      "dependencies": [],
+      "acceptance_criteria": [
+        "The settings page shows a billing portal action for eligible users."
+      ]
+    }
+  ],
+  "concerns": {
+    "rollback": {
+      "applicable": true,
+      "approach": "Guard the new entry point behind a feature flag that can be disabled."
+    },
+    "security": {
+      "applicable": true,
+      "approach": "Reuse the existing server-side portal session creation path and keep Stripe keys server-only."
+    },
+    "authentication": {
+      "applicable": false,
+      "reason": "The change reuses the existing authenticated session model without altering login flows."
+    },
+    "authorization": {
+      "applicable": true,
+      "approach": "Only render the action for owners and enforce the same role check on the server."
+    },
+    "decoupling": {
+      "applicable": true,
+      "approach": "Keep billing wiring inside the settings and billing modules without spreading Stripe calls into unrelated views."
+    },
+    "tests": {
+      "unit": {
+        "applicable": true,
+        "approach": "Cover the visibility predicate for billing portal access."
+      },
+      "integration": {
+        "applicable": true,
+        "approach": "Add an integration test for portal session creation and redirect handling."
+      },
+      "regression": {
+        "applicable": true,
+        "approach": "Add a regression test for owner visibility on the settings page."
+      },
+      "smoke": {
+        "applicable": true,
+        "approach": "Exercise the happy path in a smoke check against the settings flow."
+      }
+    },
+    "bugfix_red": {
+      "applicable": false,
+      "reason": "This is feature work, not a bug fix."
+    }
+  }
+}

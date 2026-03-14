@@ -33,14 +33,14 @@ Examples:
 ## MVP Scope
 
 - [x] Seed the repository with the initial roadmap and decision record.
-- [ ] Define the JSON contract for `review roadmap` and `review task`.
-- [ ] Implement `planwarden review` with rule-based enforcement and machine-readable output.
-- [ ] Implement `planwarden create` to write roadmap and task plan files from normalized input.
-- [ ] Implement `planwarden next` to show only the next chunk instead of the whole plan.
-- [ ] Implement `planwarden set-status` for `todo`, `in_progress`, and `done`.
-- [ ] Add initial rules for rollback, tests, security, auth, authz, decoupling, and unresolved unknowns.
-- [ ] Add bugfix enforcement: no final plan without explicit red-proof metadata.
-- [ ] Add tests for JSON parsing, rule evaluation, and markdown rendering.
+- [x] Define the JSON contract for `review roadmap` and `review task`.
+- [x] Implement `planwarden review` with rule-based enforcement and machine-readable output.
+- [x] Implement `planwarden create` to write roadmap and task plan files from normalized input.
+- [x] Implement `planwarden next` to show only the next chunk instead of the whole plan.
+- [x] Implement `planwarden set-status` for `todo`, `in_progress`, and `done`.
+- [x] Add initial rules for rollback, tests, security, auth, authz, decoupling, and unresolved unknowns.
+- [x] Add bugfix enforcement: no final plan without explicit red-proof metadata.
+- [x] Add tests for JSON parsing, rule evaluation, and markdown rendering.
 - [ ] Package the CLI for personal Homebrew install.
 
 ## First Command Set
