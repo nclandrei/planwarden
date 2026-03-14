@@ -30,13 +30,11 @@ pub struct ConcernRuleSpec {
 
 pub fn review_schema(kind: PlanKind) -> ReviewSchema {
     let label = match kind {
-        PlanKind::Roadmap => "roadmap",
+        PlanKind::Plan => "plan",
         PlanKind::Task => "task",
     };
     let summary = match kind {
-        PlanKind::Roadmap => {
-            "Validate a big-picture plan and normalize it into a durable roadmap file."
-        }
+        PlanKind::Plan => "Validate a multi-slice plan and normalize it into a durable plan file.",
         PlanKind::Task => "Validate one execution slice and normalize it into a durable task plan.",
     };
 
@@ -45,7 +43,7 @@ pub fn review_schema(kind: PlanKind) -> ReviewSchema {
         summary: summary.to_string(),
         notes: vec![
             "The agent is expected to investigate first, then send structured findings instead of free-form prose.".to_string(),
-            "Roadmap and task currently share the same payload shape; the difference is scope and the resulting item IDs.".to_string(),
+            "Plan and task currently share the same payload shape; the difference is scope and the resulting item IDs.".to_string(),
             "If a concern does not apply, the agent must say so explicitly and justify it.".to_string(),
             "After `create`, the agent should call `planwarden next <plan-file> --format text` and show only that chunk in chat.".to_string(),
         ],
@@ -143,7 +141,7 @@ pub fn review_schema(kind: PlanKind) -> ReviewSchema {
                 "Signals and concerns must agree. For example, touching authorization cannot mark authorization review as not applicable.".to_string(),
             ],
         },
-        example_path: "examples/review-roadmap.json".to_string(),
+        example_path: "examples/review-plan.json".to_string(),
     }
 }
 
@@ -200,9 +198,9 @@ mod tests {
     use crate::review::PlanKind;
 
     #[test]
-    fn roadmap_schema_mentions_required_fields() {
-        let schema = review_schema(PlanKind::Roadmap);
-        assert_eq!(schema.command, "planwarden review roadmap");
+    fn plan_schema_mentions_required_fields() {
+        let schema = review_schema(PlanKind::Plan);
+        assert_eq!(schema.command, "planwarden review plan");
         assert!(
             schema
                 .fields

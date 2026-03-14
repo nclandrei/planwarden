@@ -32,10 +32,10 @@ Examples:
 
 ## MVP Scope
 
-- [x] Seed the repository with the initial roadmap and decision record.
-- [x] Define the JSON contract for `review roadmap` and `review task`.
+- [x] Seed the repository with the initial plan and decision record.
+- [x] Define the JSON contract for `review plan` and `review task`.
 - [x] Implement `planwarden review` with rule-based enforcement and machine-readable output.
-- [x] Implement `planwarden create` to write roadmap and task plan files from normalized input.
+- [x] Implement `planwarden create` to write plan and task plan files from normalized input.
 - [x] Implement `planwarden next` to show only the next chunk instead of the whole plan.
 - [x] Implement `planwarden set-status` for `todo`, `in_progress`, and `done`.
 - [x] Add initial rules for rollback, tests, security, auth, authz, decoupling, and unresolved unknowns.
@@ -48,9 +48,9 @@ Examples:
 
 ## First Command Set
 
-- `planwarden review roadmap`
+- `planwarden review plan`
 - `planwarden review task`
-- `planwarden create roadmap`
+- `planwarden create plan`
 - `planwarden create task`
 - `planwarden next <plan-file>`
 - `planwarden set-status <plan-file> <item-id> <todo|in_progress|done>`

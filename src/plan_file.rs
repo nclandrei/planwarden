@@ -323,9 +323,12 @@ pub fn render_next_chunk_text(response: &NextChunkResponse) -> String {
 }
 
 fn default_plan_path(plan: &NormalizedPlan) -> PathBuf {
-    PathBuf::from("plans")
-        .join(plan.kind.directory())
-        .join(format!("{}.md", slugify(&plan.title)))
+    let mut path = PathBuf::from("plans");
+    if let Some(directory) = plan.kind.directory() {
+        path.push(directory);
+    }
+    path.push(format!("{}.md", slugify(&plan.title)));
+    path
 }
 
 fn slugify(title: &str) -> String {
@@ -674,22 +677,22 @@ mod tests {
 
     fn sample_plan() -> NormalizedPlan {
         let request: ReviewRequest =
-            serde_json::from_str(include_str!("../examples/review-roadmap.json"))
+            serde_json::from_str(include_str!("../examples/review-plan.json"))
                 .expect("example request should parse");
-        review_request(PlanKind::Roadmap, request).normalized_plan
+        review_request(PlanKind::Plan, request).normalized_plan
     }
 
     #[test]
     fn create_accepts_review_response_payload() {
         let request: ReviewRequest =
-            serde_json::from_str(include_str!("../examples/review-roadmap.json"))
+            serde_json::from_str(include_str!("../examples/review-plan.json"))
                 .expect("example request should parse");
-        let response = review_request(PlanKind::Roadmap, request);
+        let response = review_request(PlanKind::Plan, request);
         let raw = serde_json::to_string(&response).expect("response should serialize");
 
         let plan = extract_plan_from_json(&raw).expect("plan should extract");
 
-        assert_eq!(plan.kind, PlanDocumentKind::Roadmap);
+        assert_eq!(plan.kind, PlanDocumentKind::Plan);
         assert_eq!(plan.plan_status, PlanLifecycleStatus::Draft);
         assert_eq!(plan.items.len(), 1);
     }
@@ -697,7 +700,7 @@ mod tests {
     #[test]
     fn written_plan_round_trips_from_markdown() {
         let temp = tempfile::tempdir().expect("tempdir should be created");
-        let output = temp.path().join("roadmap.md");
+        let output = temp.path().join("plan.md");
         let plan = sample_plan();
 
         write_plan_file(&plan, Some(&output)).expect("plan should write");
@@ -710,10 +713,10 @@ mod tests {
     #[test]
     fn next_chunk_skips_done_items() {
         let temp = tempfile::tempdir().expect("tempdir should be created");
-        let output = temp.path().join("roadmap.md");
+        let output = temp.path().join("plan.md");
         let mut plan = sample_plan();
         plan.items.push(NormalizedPlanItem {
-            id: "R2".into(),
+            id: "P2".into(),
             status: PlanItemStatus::Done,
             title: "Already done".into(),
             summary: "Completed slice".into(),
@@ -726,21 +729,21 @@ mod tests {
         let chunk = next_chunk(&output, 5).expect("chunk should load");
 
         assert_eq!(chunk.progress.done, 1);
-        assert_eq!(chunk.focus.expect("focus item should exist").id, "R1");
+        assert_eq!(chunk.focus.expect("focus item should exist").id, "P1");
         assert!(chunk.up_next.is_empty());
     }
 
     #[test]
     fn set_status_updates_embedded_plan_data() {
         let temp = tempfile::tempdir().expect("tempdir should be created");
-        let output = temp.path().join("roadmap.md");
+        let output = temp.path().join("plan.md");
         let plan = sample_plan();
 
         write_plan_file(&plan, Some(&output)).expect("plan should write");
         approve_plan(&output).expect("plan should approve");
         start_plan(&output).expect("plan should start");
         let updated =
-            set_status(&output, "R1", PlanItemStatus::InProgress).expect("status should update");
+            set_status(&output, "P1", PlanItemStatus::InProgress).expect("status should update");
         let loaded = load_plan_file(&output).expect("plan should reload");
 
         assert_eq!(updated.item.status, PlanItemStatus::InProgress);
@@ -752,12 +755,12 @@ mod tests {
     #[test]
     fn set_status_requires_plan_to_be_in_progress() {
         let temp = tempfile::tempdir().expect("tempdir should be created");
-        let output = temp.path().join("roadmap.md");
+        let output = temp.path().join("plan.md");
         let plan = sample_plan();
 
         write_plan_file(&plan, Some(&output)).expect("plan should write");
         let error =
-            set_status(&output, "R1", PlanItemStatus::InProgress).expect_err("draft should fail");
+            set_status(&output, "P1", PlanItemStatus::InProgress).expect_err("draft should fail");
 
         assert!(
             error
@@ -796,11 +799,11 @@ mod tests {
         assert!(
             created
                 .path
-                .ends_with("plans/roadmaps/billing-portal-mvp-phase-1.md")
+                .ends_with("plans/billing-portal-mvp-phase-1.md")
         );
         assert!(
             temp.path()
-                .join("plans/roadmaps/billing-portal-mvp-phase-1.md")
+                .join("plans/billing-portal-mvp-phase-1.md")
                 .exists()
         );
     }
@@ -808,7 +811,7 @@ mod tests {
     #[test]
     fn next_chunk_prioritizes_in_progress_and_preserves_open_questions() {
         let temp = tempfile::tempdir().expect("tempdir should be created");
-        let output = temp.path().join("roadmap.md");
+        let output = temp.path().join("plan.md");
         let mut plan = sample_plan();
         plan.open_questions = vec![ReviewQuestion {
             code: "unknown_1".into(),
@@ -817,12 +820,12 @@ mod tests {
         plan.plan_status = PlanLifecycleStatus::InProgress;
         plan.items[0].status = PlanItemStatus::InProgress;
         plan.items.push(NormalizedPlanItem {
-            id: "R2".into(),
+            id: "P2".into(),
             status: PlanItemStatus::Todo,
             title: "Second slice".into(),
             summary: "Do the next thing.".into(),
             estimated_minutes: 30,
-            dependencies: vec!["R1".into()],
+            dependencies: vec!["P1".into()],
             acceptance_criteria: vec!["Still works.".into()],
         });
 
@@ -830,7 +833,7 @@ mod tests {
         let chunk = next_chunk(&output, 3).expect("chunk should load");
 
         assert_eq!(chunk.progress.in_progress, 1);
-        assert_eq!(chunk.focus.expect("focus item should exist").id, "R1");
+        assert_eq!(chunk.focus.expect("focus item should exist").id, "P1");
         assert_eq!(chunk.up_next.len(), 1);
         assert_eq!(chunk.open_questions.len(), 1);
         assert_eq!(chunk.open_questions[0].code, "unknown_1");
@@ -840,20 +843,20 @@ mod tests {
     #[test]
     fn next_chunk_surfaces_blocked_dependencies_when_nothing_is_in_progress() {
         let temp = tempfile::tempdir().expect("tempdir should be created");
-        let output = temp.path().join("roadmap.md");
+        let output = temp.path().join("plan.md");
         let mut plan = sample_plan();
         plan.plan_status = PlanLifecycleStatus::InProgress;
         plan.items.push(NormalizedPlanItem {
-            id: "R2".into(),
+            id: "P2".into(),
             status: PlanItemStatus::Todo,
             title: "Blocked slice".into(),
             summary: "Cannot start yet.".into(),
             estimated_minutes: 30,
-            dependencies: vec!["R3".into()],
+            dependencies: vec!["P3".into()],
             acceptance_criteria: vec!["Eventually works.".into()],
         });
         plan.items.push(NormalizedPlanItem {
-            id: "R3".into(),
+            id: "P3".into(),
             status: PlanItemStatus::Todo,
             title: "Dependency slice".into(),
             summary: "Must happen first.".into(),
@@ -865,19 +868,19 @@ mod tests {
         write_plan_file(&plan, Some(&output)).expect("plan should write");
         let chunk = next_chunk(&output, 3).expect("chunk should load");
 
-        assert_eq!(chunk.focus.expect("focus item should exist").id, "R1");
-        assert_eq!(chunk.up_next[0].id, "R3");
-        assert_eq!(chunk.up_next[1].id, "R2");
-        assert_eq!(chunk.up_next[1].blocked_by, vec!["R3".to_string()]);
+        assert_eq!(chunk.focus.expect("focus item should exist").id, "P1");
+        assert_eq!(chunk.up_next[0].id, "P3");
+        assert_eq!(chunk.up_next[1].id, "P2");
+        assert_eq!(chunk.up_next[1].blocked_by, vec!["P3".to_string()]);
     }
 
     #[test]
     fn next_chunk_guides_lifecycle_before_execution_and_after_completion() {
         let temp = tempfile::tempdir().expect("tempdir should be created");
-        let output = temp.path().join("roadmap.md");
+        let output = temp.path().join("plan.md");
         let mut plan = sample_plan();
         plan.items.push(NormalizedPlanItem {
-            id: "R2".into(),
+            id: "P2".into(),
             status: PlanItemStatus::Done,
             title: "Already done".into(),
             summary: "Completed slice".into(),
@@ -907,7 +910,7 @@ mod tests {
         );
 
         start_plan(&output).expect("plan should start");
-        set_status(&output, "R1", PlanItemStatus::Done).expect("item should complete");
+        set_status(&output, "P1", PlanItemStatus::Done).expect("item should complete");
         let ready_to_complete = next_chunk(&output, 3).expect("completed chunk should load");
         assert_eq!(
             ready_to_complete.plan_status,
@@ -925,7 +928,7 @@ mod tests {
     #[test]
     fn plan_lifecycle_transitions_persist_to_disk() {
         let temp = tempfile::tempdir().expect("tempdir should be created");
-        let output = temp.path().join("roadmap.md");
+        let output = temp.path().join("plan.md");
         let plan = sample_plan();
 
         write_plan_file(&plan, Some(&output)).expect("plan should write");
@@ -937,7 +940,7 @@ mod tests {
         assert_eq!(started.previous_status, PlanLifecycleStatus::Approved);
         assert_eq!(started.plan_status, PlanLifecycleStatus::InProgress);
 
-        set_status(&output, "R1", PlanItemStatus::Done).expect("item should complete");
+        set_status(&output, "P1", PlanItemStatus::Done).expect("item should complete");
         let completed = complete_plan(&output).expect("plan should complete");
         assert_eq!(completed.previous_status, PlanLifecycleStatus::InProgress);
         assert_eq!(completed.plan_status, PlanLifecycleStatus::Done);

@@ -2,14 +2,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlanKind {
-    Roadmap,
+    Plan,
     Task,
 }
 
 impl PlanKind {
     fn id_prefix(self) -> &'static str {
         match self {
-            Self::Roadmap => "R",
+            Self::Plan => "P",
             Self::Task => "T",
         }
     }
@@ -18,7 +18,7 @@ impl PlanKind {
 impl From<PlanKind> for PlanDocumentKind {
     fn from(value: PlanKind) -> Self {
         match value {
-            PlanKind::Roadmap => Self::Roadmap,
+            PlanKind::Plan => Self::Plan,
             PlanKind::Task => Self::Task,
         }
     }
@@ -144,22 +144,22 @@ pub struct ReviewResponse {
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanDocumentKind {
-    Roadmap,
+    Plan,
     Task,
 }
 
 impl PlanDocumentKind {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Roadmap => "roadmap",
+            Self::Plan => "plan",
             Self::Task => "task",
         }
     }
 
-    pub fn directory(&self) -> &'static str {
+    pub fn directory(&self) -> Option<&'static str> {
         match self {
-            Self::Roadmap => "roadmaps",
-            Self::Task => "tasks",
+            Self::Plan => None,
+            Self::Task => Some("tasks"),
         }
     }
 }
@@ -608,14 +608,14 @@ mod tests {
 
     #[test]
     fn review_ready_when_contract_is_satisfied() {
-        let response = review_request(PlanKind::Roadmap, ready_request());
+        let response = review_request(PlanKind::Plan, ready_request());
 
         assert_eq!(response.decision, ReviewDecision::Ready);
         assert!(response.missing.is_empty());
         assert!(response.questions.is_empty());
         assert!(response.pushback.is_empty());
-        assert_eq!(response.normalized_plan.items[0].id, "R1");
-        assert_eq!(response.normalized_plan.kind.label(), "roadmap");
+        assert_eq!(response.normalized_plan.items[0].id, "P1");
+        assert_eq!(response.normalized_plan.kind.label(), "plan");
     }
 
     #[test]

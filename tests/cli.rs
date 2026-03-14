@@ -9,10 +9,10 @@ fn binary() -> Command {
     Command::cargo_bin("planwarden").expect("binary should build")
 }
 
-fn create_roadmap_plan(temp_dir: &Path, payload: impl Into<Vec<u8>>) -> PathBuf {
+fn create_plan(temp_dir: &Path, payload: impl Into<Vec<u8>>) -> PathBuf {
     let review_output = binary()
         .current_dir(temp_dir)
-        .args(["review", "roadmap", "--compact"])
+        .args(["review", "plan", "--compact"])
         .write_stdin(payload)
         .assert()
         .success()
@@ -22,7 +22,7 @@ fn create_roadmap_plan(temp_dir: &Path, payload: impl Into<Vec<u8>>) -> PathBuf 
 
     let create_output = binary()
         .current_dir(temp_dir)
-        .args(["create", "roadmap", "--compact"])
+        .args(["create", "plan", "--compact"])
         .write_stdin(review_output)
         .assert()
         .success()
@@ -51,9 +51,9 @@ fn advance_plan_to_in_progress(path: &Path) {
 }
 
 #[test]
-fn schema_review_roadmap_text_is_agent_facing() {
+fn schema_review_plan_text_is_agent_facing() {
     binary()
-        .args(["schema", "review", "roadmap"])
+        .args(["schema", "review", "plan"])
         .assert()
         .success()
         .stdout(predicate::str::contains("Top-level fields"))
@@ -70,7 +70,7 @@ fn top_level_help_describes_schema_first_flow() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "planwarden schema review roadmap|task",
+            "planwarden schema review plan|task",
         ))
         .stdout(predicate::str::contains(
             "planwarden next <plan-file> --format text",
@@ -80,16 +80,16 @@ fn top_level_help_describes_schema_first_flow() {
 #[test]
 fn review_help_points_to_schema_command() {
     binary()
-        .args(["review", "roadmap", "--help"])
+        .args(["review", "plan", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("planwarden schema review roadmap"));
+        .stdout(predicate::str::contains("planwarden schema review plan"));
 }
 
 #[test]
 fn create_help_points_to_next_chunk_flow() {
     binary()
-        .args(["create", "roadmap", "--help"])
+        .args(["create", "plan", "--help"])
         .assert()
         .success()
         .stdout(predicate::str::contains(
@@ -142,7 +142,7 @@ fn review_rejects_unknown_input_fields() {
     "#;
 
     binary()
-        .args(["review", "roadmap"])
+        .args(["review", "plan"])
         .write_stdin(payload)
         .assert()
         .failure()
@@ -155,8 +155,8 @@ fn review_rejects_unknown_input_fields() {
 #[test]
 fn create_rejects_kind_mismatch() {
     let review_output = binary()
-        .args(["review", "roadmap", "--compact"])
-        .write_stdin(include_str!("../examples/review-roadmap.json"))
+        .args(["review", "plan", "--compact"])
+        .write_stdin(include_str!("../examples/review-plan.json"))
         .assert()
         .success()
         .get_output()
@@ -174,14 +174,14 @@ fn create_rejects_kind_mismatch() {
 #[test]
 fn create_without_output_uses_default_slugified_path() {
     let temp = tempfile::tempdir().expect("tempdir should be created");
-    let path = create_roadmap_plan(temp.path(), include_str!("../examples/review-roadmap.json"));
+    let path = create_plan(temp.path(), include_str!("../examples/review-plan.json"));
 
     assert_eq!(
         path.strip_prefix(temp.path())
             .expect("path should be relative to temp")
             .to_str()
             .expect("utf8 path"),
-        "plans/roadmaps/add-billing-portal.md"
+        "plans/add-billing-portal.md"
     );
     assert!(path.exists());
 }
@@ -204,26 +204,26 @@ fn next_rejects_malformed_plan_files() {
 #[test]
 fn set_status_rejects_unknown_item_ids() {
     let temp = tempfile::tempdir().expect("tempdir should be created");
-    let path = create_roadmap_plan(temp.path(), include_str!("../examples/review-roadmap.json"));
+    let path = create_plan(temp.path(), include_str!("../examples/review-plan.json"));
     advance_plan_to_in_progress(&path);
 
     binary()
         .args([
             "set-status",
             path.to_str().expect("utf8 path"),
-            "R9",
+            "P9",
             "done",
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("item `R9` not found"));
+        .stderr(predicate::str::contains("item `P9` not found"));
 }
 
 #[test]
 fn next_respects_limit_and_status_updates() {
     let temp = tempfile::tempdir().expect("tempdir should be created");
     let mut payload: Value =
-        serde_json::from_str(include_str!("../examples/review-roadmap.json")).expect("json");
+        serde_json::from_str(include_str!("../examples/review-plan.json")).expect("json");
     payload["proposed_slices"] = serde_json::json!([
       {
         "title": "First slice",
@@ -236,12 +236,12 @@ fn next_respects_limit_and_status_updates() {
         "title": "Second slice",
         "summary": "Do the second thing.",
         "estimated_minutes": 30,
-        "dependencies": ["R1"],
+        "dependencies": ["P1"],
         "acceptance_criteria": ["Second works."]
       }
     ]);
 
-    let path = create_roadmap_plan(
+    let path = create_plan(
         temp.path(),
         serde_json::to_vec(&payload).expect("payload should serialize"),
     );
@@ -251,7 +251,7 @@ fn next_respects_limit_and_status_updates() {
         .args([
             "set-status",
             path.to_str().expect("utf8 path"),
-            "R1",
+            "P1",
             "done",
         ])
         .assert()
@@ -267,7 +267,7 @@ fn next_respects_limit_and_status_updates() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"focus\":{\"id\":\"R2\""))
+        .stdout(predicate::str::contains("\"focus\":{\"id\":\"P2\""))
         .stdout(predicate::str::contains("\"remaining_items\":0"));
 }
 
@@ -305,7 +305,7 @@ fn next_text_output_is_chunked_and_includes_questions() {
           "title": "Follow-up slice",
           "summary": "Do the next thing.",
           "estimated_minutes": 30,
-          "dependencies": ["R1"],
+          "dependencies": ["P1"],
           "acceptance_criteria": ["Next thing works."]
         }
       ],
@@ -326,7 +326,7 @@ fn next_text_output_is_chunked_and_includes_questions() {
     }
     "#;
 
-    let path = create_roadmap_plan(temp.path(), payload);
+    let path = create_plan(temp.path(), payload);
 
     binary()
         .args([
@@ -348,13 +348,13 @@ fn next_text_output_is_chunked_and_includes_questions() {
 #[test]
 fn set_status_rejects_before_plan_starts() {
     let temp = tempfile::tempdir().expect("tempdir should be created");
-    let path = create_roadmap_plan(temp.path(), include_str!("../examples/review-roadmap.json"));
+    let path = create_plan(temp.path(), include_str!("../examples/review-plan.json"));
 
     binary()
         .args([
             "set-status",
             path.to_str().expect("utf8 path"),
-            "R1",
+            "P1",
             "in-progress",
         ])
         .assert()
@@ -367,7 +367,7 @@ fn set_status_rejects_before_plan_starts() {
 #[test]
 fn lifecycle_commands_gate_execution_and_completion() {
     let temp = tempfile::tempdir().expect("tempdir should be created");
-    let path = create_roadmap_plan(temp.path(), include_str!("../examples/review-roadmap.json"));
+    let path = create_plan(temp.path(), include_str!("../examples/review-plan.json"));
 
     binary()
         .args([
@@ -412,7 +412,7 @@ fn lifecycle_commands_gate_execution_and_completion() {
         .args([
             "set-status",
             path.to_str().expect("utf8 path"),
-            "R1",
+            "P1",
             "done",
         ])
         .assert()
@@ -431,7 +431,7 @@ fn lifecycle_commands_gate_execution_and_completion() {
         .args([
             "set-status",
             path.to_str().expect("utf8 path"),
-            "R1",
+            "P1",
             "done",
         ])
         .assert()
@@ -468,7 +468,7 @@ fn lifecycle_commands_gate_execution_and_completion() {
 #[test]
 fn complete_rejects_incomplete_plans() {
     let temp = tempfile::tempdir().expect("tempdir should be created");
-    let path = create_roadmap_plan(temp.path(), include_str!("../examples/review-roadmap.json"));
+    let path = create_plan(temp.path(), include_str!("../examples/review-plan.json"));
     advance_plan_to_in_progress(&path);
 
     binary()
@@ -476,6 +476,6 @@ fn complete_rejects_incomplete_plans() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "cannot complete plan while items remain incomplete: R1",
+            "cannot complete plan while items remain incomplete: P1",
         ));
 }

@@ -22,4 +22,4 @@ if [[ -f "${binary}" && "${binary}" == *.tar.xz ]]; then
 fi
 
 "${binary}" --help >/dev/null
-"${binary}" schema review roadmap >/dev/null
+"${binary}" schema review plan >/dev/null

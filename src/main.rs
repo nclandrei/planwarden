@@ -11,11 +11,12 @@ use planwarden::plan_file::{
 use planwarden::review::{PlanItemStatus, PlanKind, ReviewRequest, review_request};
 use planwarden::schema::{render_review_schema_text, review_schema};
 
-const REVIEW_ROADMAP_AFTER_HELP: &str = "Run `planwarden schema review roadmap` to inspect the contract before building the JSON payload.";
+const REVIEW_PLAN_AFTER_HELP: &str =
+    "Run `planwarden schema review plan` to inspect the contract before building the JSON payload.";
 const REVIEW_TASK_AFTER_HELP: &str =
     "Run `planwarden schema review task` to inspect the contract before building the JSON payload.";
 const CREATE_AFTER_HELP: &str = "Input can be either the full `review` response JSON or only the `normalized_plan` object. After create, run `planwarden next <plan-file> --format text` instead of dumping the full plan into chat.";
-const CLI_AFTER_HELP: &str = "Agent flow:\n  1. Investigate the repo and request first.\n  2. Run `planwarden schema review roadmap|task`.\n  3. Run `planwarden review roadmap|task` with structured findings.\n  4. Resolve any `missing`, `questions`, and `pushback` before proceeding.\n  5. Run `planwarden create roadmap|task`.\n  6. Show only the current chunk with `planwarden next <plan-file> --format text`.";
+const CLI_AFTER_HELP: &str = "Agent flow:\n  1. Investigate the repo and request first.\n  2. Run `planwarden schema review plan|task`.\n  3. Run `planwarden review plan|task` with structured findings.\n  4. Resolve any `missing`, `questions`, and `pushback` before proceeding.\n  5. Run `planwarden create plan|task`.\n  6. Show only the current chunk with `planwarden next <plan-file> --format text`.";
 
 #[derive(Debug, Parser)]
 #[command(name = "planwarden")]
@@ -62,9 +63,9 @@ enum Command {
 
 #[derive(Debug, Subcommand)]
 enum ReviewCommand {
-    #[command(about = "Validate a big-picture roadmap request.")]
-    #[command(after_long_help = REVIEW_ROADMAP_AFTER_HELP)]
-    Roadmap(InputArgs),
+    #[command(about = "Validate a multi-slice plan request.")]
+    #[command(after_long_help = REVIEW_PLAN_AFTER_HELP)]
+    Plan(InputArgs),
     #[command(about = "Validate a single execution-slice task request.")]
     #[command(after_long_help = REVIEW_TASK_AFTER_HELP)]
     Task(InputArgs),
@@ -81,17 +82,17 @@ enum SchemaCommand {
 
 #[derive(Debug, Subcommand)]
 enum SchemaReviewCommand {
-    #[command(about = "Show the roadmap review contract.")]
-    Roadmap(SchemaArgs),
+    #[command(about = "Show the plan review contract.")]
+    Plan(SchemaArgs),
     #[command(about = "Show the task review contract.")]
     Task(SchemaArgs),
 }
 
 #[derive(Debug, Subcommand)]
 enum CreateCommand {
-    #[command(about = "Write a roadmap markdown file from review output.")]
+    #[command(about = "Write a plan markdown file from review output.")]
     #[command(after_long_help = CREATE_AFTER_HELP)]
-    Roadmap(CreateArgs),
+    Plan(CreateArgs),
     #[command(about = "Write a task markdown file from review output.")]
     #[command(after_long_help = CREATE_AFTER_HELP)]
     Task(CreateArgs),
@@ -146,7 +147,7 @@ struct NextArgs {
 struct SetStatusArgs {
     /// Path to a markdown plan file created by Planwarden.
     plan_file: PathBuf,
-    /// The checklist item ID to update, such as R1 or T2.
+    /// The checklist item ID to update, such as P1 or T2.
     item_id: String,
     #[arg(value_enum)]
     status: CliStatus,
@@ -200,7 +201,7 @@ fn run() -> Result<()> {
     match cli.command {
         Command::Review { kind } => {
             let (plan_kind, args) = match kind {
-                ReviewCommand::Roadmap(args) => (PlanKind::Roadmap, args),
+                ReviewCommand::Plan(args) => (PlanKind::Plan, args),
                 ReviewCommand::Task(args) => (PlanKind::Task, args),
             };
             let input = read_input(args.input)?;
@@ -212,7 +213,7 @@ fn run() -> Result<()> {
         Command::Schema { kind } => match kind {
             SchemaCommand::Review { kind } => {
                 let (plan_kind, args) = match kind {
-                    SchemaReviewCommand::Roadmap(args) => (PlanKind::Roadmap, args),
+                    SchemaReviewCommand::Plan(args) => (PlanKind::Plan, args),
                     SchemaReviewCommand::Task(args) => (PlanKind::Task, args),
                 };
                 let schema = review_schema(plan_kind);
@@ -224,7 +225,7 @@ fn run() -> Result<()> {
         },
         Command::Create { kind } => {
             let (expected_kind, args) = match kind {
-                CreateCommand::Roadmap(args) => ("roadmap", args),
+                CreateCommand::Plan(args) => ("plan", args),
                 CreateCommand::Task(args) => ("task", args),
             };
             let input = read_input(args.input)?;
