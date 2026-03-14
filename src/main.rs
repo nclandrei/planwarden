@@ -14,12 +14,16 @@ use planwarden::schema::{render_review_schema_text, review_schema};
 const REVIEW_ROADMAP_AFTER_HELP: &str = "Run `planwarden schema review roadmap` to inspect the contract before building the JSON payload.";
 const REVIEW_TASK_AFTER_HELP: &str =
     "Run `planwarden schema review task` to inspect the contract before building the JSON payload.";
-const CREATE_AFTER_HELP: &str =
-    "Input can be either the full `review` response JSON or only the `normalized_plan` object.";
+const CREATE_AFTER_HELP: &str = "Input can be either the full `review` response JSON or only the `normalized_plan` object. After create, run `planwarden next <plan-file> --format text` instead of dumping the full plan into chat.";
+const CLI_AFTER_HELP: &str = "Agent flow:\n  1. Investigate the repo and request first.\n  2. Run `planwarden schema review roadmap|task`.\n  3. Run `planwarden review roadmap|task` with structured findings.\n  4. Resolve any `missing`, `questions`, and `pushback` before proceeding.\n  5. Run `planwarden create roadmap|task`.\n  6. Show only the current chunk with `planwarden next <plan-file> --format text`.";
 
 #[derive(Debug, Parser)]
 #[command(name = "planwarden")]
-#[command(about = "A planning enforcer for AI agents.", long_about = None)]
+#[command(
+    about = "A planning enforcer for AI agents.",
+    long_about = "A planning enforcer for AI agents. Investigate first, ask `schema` for the contract, send structured findings to `review`, write the durable plan with `create`, and show only the current chunk with `next`.",
+    after_help = CLI_AFTER_HELP
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -32,7 +36,9 @@ enum Command {
         #[command(subcommand)]
         kind: ReviewCommand,
     },
-    #[command(about = "Show the review contract so an agent knows what JSON to send.")]
+    #[command(
+        about = "Show the review contract so an agent knows what JSON to send after investigating."
+    )]
     Schema {
         #[command(subcommand)]
         kind: SchemaCommand,
@@ -42,7 +48,7 @@ enum Command {
         #[command(subcommand)]
         kind: CreateCommand,
     },
-    #[command(about = "Show only the next incomplete plan items.")]
+    #[command(about = "Show only the current plan chunk instead of the whole plan file.")]
     Next(NextArgs),
     #[command(about = "Update one checklist item to todo, in_progress, or done.")]
     SetStatus(SetStatusArgs),

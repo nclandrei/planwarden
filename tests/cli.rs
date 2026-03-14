@@ -57,7 +57,24 @@ fn schema_review_roadmap_text_is_agent_facing() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Top-level fields"))
-        .stdout(predicate::str::contains("Example payload"));
+        .stdout(predicate::str::contains("Example payload"))
+        .stdout(predicate::str::contains(
+            "planwarden next <plan-file> --format text",
+        ));
+}
+
+#[test]
+fn top_level_help_describes_schema_first_flow() {
+    binary()
+        .args(["--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "planwarden schema review roadmap|task",
+        ))
+        .stdout(predicate::str::contains(
+            "planwarden next <plan-file> --format text",
+        ));
 }
 
 #[test]
@@ -67,6 +84,17 @@ fn review_help_points_to_schema_command() {
         .assert()
         .success()
         .stdout(predicate::str::contains("planwarden schema review roadmap"));
+}
+
+#[test]
+fn create_help_points_to_next_chunk_flow() {
+    binary()
+        .args(["create", "roadmap", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "planwarden next <plan-file> --format text",
+        ));
 }
 
 #[test]

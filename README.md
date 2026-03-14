@@ -15,25 +15,42 @@ cargo install planwarden --locked
 ## Quick Start
 
 ```bash
+# 1. Investigate first, then ask for the contract.
 planwarden schema review roadmap
+
+# 2. Send structured findings to review.
 planwarden review roadmap --input findings.json
+
+# 3. Write the full plan file once review is ready.
 planwarden create roadmap --input review.json
+
+# 4. Show only the current chunk in chat.
 planwarden next plans/roadmaps/my-plan.md --format text
+
+# 5. Move the plan through its lifecycle.
 planwarden approve plans/roadmaps/my-plan.md
 planwarden start plans/roadmaps/my-plan.md
 planwarden set-status plans/roadmaps/my-plan.md R1 in-progress
 planwarden complete plans/roadmaps/my-plan.md
 ```
 
-## Core Flow
+## Agent Workflow
 
 1. The agent investigates the repo and request.
-2. The agent asks `planwarden schema review roadmap|task` what structured input it needs.
-3. The agent sends findings to `planwarden review roadmap|task`.
+2. The agent runs `planwarden schema review roadmap|task` to see the contract.
+3. The agent sends structured findings to `planwarden review roadmap|task`.
 4. `planwarden` returns `decision`, `missing`, `questions`, `pushback`, and `normalized_plan`.
-5. Once the result is good enough, the agent writes the plan with `planwarden create`.
-6. The agent only shows the next chunk with `planwarden next`.
-7. The plan moves through `draft -> approved -> in_progress -> done`.
+5. The agent resolves any gaps before creating the plan file.
+6. The agent writes the full plan with `planwarden create`.
+7. The agent immediately runs `planwarden next <plan-file> --format text` and shows only that chunk in chat unless the user explicitly asks for the full plan.
+8. The plan moves through `draft -> approved -> in_progress -> done`.
+
+## Working Contract
+
+- The plan file is the source of truth; chat should stay chunked.
+- The agent decides whether a concern applies and must justify `applicable = false`.
+- `planwarden` enforces consistency, slice size, and required coverage.
+- Bugfix work must prove red before green.
 
 ## Commands
 
