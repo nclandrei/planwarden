@@ -45,7 +45,7 @@ pub fn review_schema(kind: PlanKind) -> ReviewSchema {
             "The agent is expected to investigate first, then send structured findings instead of free-form prose.".to_string(),
             "Plan and task currently share the same payload shape; the difference is scope and the resulting item IDs.".to_string(),
             "If a concern does not apply, the agent must say so explicitly and justify it.".to_string(),
-            "After `create`, the agent should call `planwarden next <plan-file> --format text` and show only that chunk in chat.".to_string(),
+            "After `create`, the agent should call `planwarden review-next <plan-file> --format text` and show only that section in chat. After review is complete, approve and use `next` for execution chunks.".to_string(),
         ],
         fields: vec![
             field("title", false, "string", "Optional display title; defaults to `goal`."),
@@ -222,6 +222,6 @@ mod tests {
         assert!(output.contains("planwarden review task"));
         assert!(output.contains("Top-level fields"));
         assert!(output.contains("Example payload"));
-        assert!(output.contains("planwarden next <plan-file> --format text"));
+        assert!(output.contains("planwarden review-next <plan-file> --format text"));
     }
 }

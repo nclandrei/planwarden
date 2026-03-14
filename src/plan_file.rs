@@ -8,7 +8,7 @@ use serde_json::Value;
 
 use crate::review::{
     Concern, NormalizedPlan, NormalizedPlanItem, PlanItemStatus, PlanLifecycleStatus,
-    ReviewQuestion,
+    PlanReviewSectionId, ReviewDecision, ReviewQuestion,
 };
 
 const START_MARKER: &str = "<!-- planwarden:data:start -->";
@@ -19,6 +19,31 @@ pub struct CreatePlanResponse {
     pub path: String,
     pub title: String,
     pub item_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReviewNextResponse {
+    pub path: String,
+    pub title: String,
+    pub plan_status: PlanLifecycleStatus,
+    pub progress: ReviewProgressSummary,
+    pub focus: Option<ReviewSectionChunk>,
+    pub up_next: Vec<ReviewSectionSummary>,
+    pub remaining_sections: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_action: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReviewAdvanceResponse {
+    pub path: String,
+    pub title: String,
+    pub plan_status: PlanLifecycleStatus,
+    pub completed_section: ReviewSectionSummary,
+    pub progress: ReviewProgressSummary,
+    pub remaining_sections: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_action: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -50,6 +75,25 @@ pub struct PlanLifecycleResponse {
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct ReviewProgressSummary {
+    pub total: usize,
+    pub done: usize,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct ReviewSectionSummary {
+    pub id: PlanReviewSectionId,
+    pub title: String,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct ReviewSectionChunk {
+    pub id: PlanReviewSectionId,
+    pub title: String,
+    pub lines: Vec<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct ProgressSummary {
     pub total: usize,
     pub todo: usize,
@@ -71,6 +115,7 @@ pub struct ChunkItem {
 
 #[derive(Debug, Deserialize)]
 struct ReviewEnvelope {
+    decision: ReviewDecision,
     normalized_plan: NormalizedPlan,
 }
 
@@ -80,6 +125,16 @@ pub fn extract_plan_from_json(raw: &str) -> Result<NormalizedPlan> {
     }
 
     if let Ok(envelope) = serde_json::from_str::<ReviewEnvelope>(raw) {
+        if envelope.decision != ReviewDecision::Ready {
+            bail!(
+                "review response decision must be `ready` before create can write a plan file; got `{}`",
+                match envelope.decision {
+                    ReviewDecision::Blocked => "blocked",
+                    ReviewDecision::NeedsInput => "needs_input",
+                    ReviewDecision::Ready => "ready",
+                }
+            );
+        }
         return Ok(envelope.normalized_plan);
     }
 
@@ -123,11 +178,63 @@ pub fn load_plan_file(path: &Path) -> Result<NormalizedPlan> {
     extract_plan_from_markdown(&markdown)
 }
 
+pub fn review_next(path: &Path, limit: usize) -> Result<ReviewNextResponse> {
+    let plan = load_plan_file(path)?;
+    ensure_review_phase(path, &plan)?;
+    let sections = review_sections(&plan);
+    let progress = compute_review_progress(&plan, &sections);
+    let (focus, up_next, remaining_sections) = select_review_sections(&plan, &sections, limit);
+    let next_action = review_next_action(path, &plan, remaining_sections);
+
+    Ok(ReviewNextResponse {
+        path: path.display().to_string(),
+        title: plan.title,
+        plan_status: plan.plan_status,
+        progress,
+        focus,
+        up_next,
+        remaining_sections,
+        next_action,
+    })
+}
+
+pub fn advance_review(path: &Path) -> Result<ReviewAdvanceResponse> {
+    let mut plan = load_plan_file(path)?;
+    ensure_review_phase(path, &plan)?;
+    let sections = review_sections(&plan);
+    let current = next_review_section(&plan, &sections)
+        .with_context(|| format!("review is already complete for {}", path.display()))?;
+
+    if !plan.review_state.completed_sections.contains(&current.id) {
+        plan.review_state.completed_sections.push(current.id);
+    }
+    write_updated_plan(path, &plan)?;
+
+    let sections = review_sections(&plan);
+    let progress = compute_review_progress(&plan, &sections);
+    let remaining_sections = sections.len().saturating_sub(progress.done);
+    let next_action = review_next_action(path, &plan, remaining_sections);
+
+    Ok(ReviewAdvanceResponse {
+        path: path.display().to_string(),
+        title: plan.title,
+        plan_status: plan.plan_status,
+        completed_section: ReviewSectionSummary {
+            id: current.id,
+            title: current.title,
+        },
+        progress,
+        remaining_sections,
+        next_action,
+    })
+}
+
 pub fn next_chunk(path: &Path, limit: usize) -> Result<NextChunkResponse> {
     let plan = load_plan_file(path)?;
     let progress = compute_progress(&plan);
     let (focus, up_next, remaining_items) = select_chunk_items(&plan, limit.max(1));
     let incomplete_items = progress.todo + progress.in_progress;
+    let next_action = next_execution_action(path, &plan, incomplete_items);
 
     Ok(NextChunkResponse {
         path: path.display().to_string(),
@@ -138,7 +245,7 @@ pub fn next_chunk(path: &Path, limit: usize) -> Result<NextChunkResponse> {
         up_next,
         open_questions: plan.open_questions.into_iter().take(limit.max(1)).collect(),
         remaining_items,
-        next_action: next_action(path, plan.plan_status, incomplete_items),
+        next_action,
     })
 }
 
@@ -322,6 +429,52 @@ pub fn render_next_chunk_text(response: &NextChunkResponse) -> String {
     output.trim_end().to_string()
 }
 
+pub fn render_review_next_text(response: &ReviewNextResponse) -> String {
+    let mut output = String::new();
+    let _ = writeln!(&mut output, "{}", response.title);
+    let _ = writeln!(&mut output, "Plan Status: {}", response.plan_status.label());
+    if let Some(next_action) = &response.next_action {
+        let _ = writeln!(&mut output, "Next step: {next_action}");
+    }
+    let _ = writeln!(
+        &mut output,
+        "Review Progress: {}/{} section(s) done",
+        response.progress.done, response.progress.total
+    );
+    let _ = writeln!(&mut output);
+
+    if let Some(focus) = &response.focus {
+        let _ = writeln!(&mut output, "Review Now");
+        let _ = writeln!(&mut output, "{}", focus.title);
+        for line in &focus.lines {
+            let _ = writeln!(&mut output, "{line}");
+        }
+        let _ = writeln!(&mut output);
+    } else {
+        let _ = writeln!(&mut output, "Review Now");
+        let _ = writeln!(&mut output, "No remaining review sections.");
+        let _ = writeln!(&mut output);
+    }
+
+    if !response.up_next.is_empty() {
+        let _ = writeln!(&mut output, "Up Next Review");
+        for section in &response.up_next {
+            let _ = writeln!(&mut output, "- {}", section.title);
+        }
+        let _ = writeln!(&mut output);
+    }
+
+    if response.remaining_sections > 0 {
+        let _ = writeln!(
+            &mut output,
+            "Remaining after this section: {} section(s)",
+            response.remaining_sections
+        );
+    }
+
+    output.trim_end().to_string()
+}
+
 fn default_plan_path(plan: &NormalizedPlan) -> PathBuf {
     let mut path = PathBuf::from("plans");
     if let Some(directory) = plan.kind.directory() {
@@ -371,6 +524,167 @@ fn compute_progress(plan: &NormalizedPlan) -> ProgressSummary {
     }
 
     summary
+}
+
+fn compute_review_progress(
+    plan: &NormalizedPlan,
+    sections: &[ReviewSectionChunk],
+) -> ReviewProgressSummary {
+    let done = sections
+        .iter()
+        .filter(|section| plan.review_state.completed_sections.contains(&section.id))
+        .count();
+
+    ReviewProgressSummary {
+        total: sections.len(),
+        done,
+    }
+}
+
+fn select_review_sections(
+    plan: &NormalizedPlan,
+    sections: &[ReviewSectionChunk],
+    limit: usize,
+) -> (Option<ReviewSectionChunk>, Vec<ReviewSectionSummary>, usize) {
+    if sections.is_empty() {
+        return (None, Vec::new(), 0);
+    }
+
+    let remaining = sections
+        .iter()
+        .filter(|section| !plan.review_state.completed_sections.contains(&section.id))
+        .cloned()
+        .collect::<Vec<_>>();
+    if remaining.is_empty() {
+        return (None, Vec::new(), 0);
+    }
+
+    let focus = remaining[0].clone();
+    let up_next = remaining
+        .iter()
+        .skip(1)
+        .take(limit.max(1).saturating_sub(1))
+        .map(|section| ReviewSectionSummary {
+            id: section.id,
+            title: section.title.clone(),
+        })
+        .collect::<Vec<_>>();
+    let remaining_sections = remaining.len().saturating_sub(1);
+
+    (Some(focus), up_next, remaining_sections)
+}
+
+fn review_sections(plan: &NormalizedPlan) -> Vec<ReviewSectionChunk> {
+    let mut sections = vec![ReviewSectionChunk {
+        id: PlanReviewSectionId::Goal,
+        title: PlanReviewSectionId::Goal.title().to_string(),
+        lines: vec![plan.goal.clone()],
+    }];
+
+    if !plan.facts.is_empty() {
+        sections.push(list_review_section(PlanReviewSectionId::Facts, &plan.facts));
+    }
+    if !plan.constraints.is_empty() {
+        sections.push(list_review_section(
+            PlanReviewSectionId::Constraints,
+            &plan.constraints,
+        ));
+    }
+    sections.push(list_review_section(
+        PlanReviewSectionId::AcceptanceCriteria,
+        &plan.acceptance_criteria,
+    ));
+    if !plan.risks.is_empty() {
+        sections.push(list_review_section(PlanReviewSectionId::Risks, &plan.risks));
+    }
+    if !plan.open_questions.is_empty() {
+        sections.push(ReviewSectionChunk {
+            id: PlanReviewSectionId::OpenQuestions,
+            title: PlanReviewSectionId::OpenQuestions.title().to_string(),
+            lines: plan
+                .open_questions
+                .iter()
+                .map(|question| format!("- {}: {}", question.code, question.prompt))
+                .collect(),
+        });
+    }
+    sections.push(ReviewSectionChunk {
+        id: PlanReviewSectionId::Concerns,
+        title: PlanReviewSectionId::Concerns.title().to_string(),
+        lines: render_concern_lines(plan),
+    });
+    sections.push(ReviewSectionChunk {
+        id: PlanReviewSectionId::Checklist,
+        title: PlanReviewSectionId::Checklist.title().to_string(),
+        lines: render_checklist_lines(plan),
+    });
+
+    sections
+}
+
+fn list_review_section(id: PlanReviewSectionId, items: &[String]) -> ReviewSectionChunk {
+    ReviewSectionChunk {
+        id,
+        title: id.title().to_string(),
+        lines: items.iter().map(|item| format!("- {item}")).collect(),
+    }
+}
+
+fn render_concern_lines(plan: &NormalizedPlan) -> Vec<String> {
+    [
+        ("Rollback", &plan.concerns.rollback),
+        ("Security", &plan.concerns.security),
+        ("Authentication", &plan.concerns.authentication),
+        ("Authorization", &plan.concerns.authorization),
+        ("Decoupling", &plan.concerns.decoupling),
+        ("Unit Tests", &plan.concerns.tests.unit),
+        ("Integration Tests", &plan.concerns.tests.integration),
+        ("Regression Tests", &plan.concerns.tests.regression),
+        ("Smoke Tests", &plan.concerns.tests.smoke),
+        ("Bugfix Red Proof", &plan.concerns.bugfix_red),
+    ]
+    .into_iter()
+    .map(|(label, concern)| render_concern_line(label, concern))
+    .collect()
+}
+
+fn render_checklist_lines(plan: &NormalizedPlan) -> Vec<String> {
+    let mut lines = Vec::new();
+    for item in &plan.items {
+        lines.push(format!(
+            "- {} {} {} ({}m)",
+            item.status.checkbox(),
+            item.id,
+            item.title,
+            item.estimated_minutes
+        ));
+        lines.push(format!("  Summary: {}", item.summary));
+        if item.dependencies.is_empty() {
+            lines.push("  Dependencies: none".to_string());
+        } else {
+            lines.push(format!("  Dependencies: {}", item.dependencies.join(", ")));
+        }
+        lines.push("  Acceptance:".to_string());
+        for acceptance in &item.acceptance_criteria {
+            lines.push(format!("  - {}", acceptance));
+        }
+    }
+    lines
+}
+
+fn next_review_section(
+    plan: &NormalizedPlan,
+    sections: &[ReviewSectionChunk],
+) -> Option<ReviewSectionChunk> {
+    sections
+        .iter()
+        .find(|section| !plan.review_state.completed_sections.contains(&section.id))
+        .cloned()
+}
+
+fn review_complete(plan: &NormalizedPlan) -> bool {
+    let sections = review_sections(plan);
+    compute_review_progress(plan, &sections).done == sections.len()
 }
 
 fn select_chunk_items(
@@ -458,19 +772,67 @@ fn chunk_item_from_done_ids(item: &NormalizedPlanItem, done_ids: &[&str]) -> Chu
     }
 }
 
-fn next_action(
+fn review_next_action(
     path: &Path,
-    status: PlanLifecycleStatus,
+    plan: &NormalizedPlan,
+    remaining_sections: usize,
+) -> Option<String> {
+    if remaining_sections > 0 {
+        Some(format!("planwarden advance-review {}", path.display()))
+    } else {
+        match plan.plan_status {
+            PlanLifecycleStatus::Draft => Some(format!("planwarden approve {}", path.display())),
+            PlanLifecycleStatus::Approved => Some(format!("planwarden start {}", path.display())),
+            PlanLifecycleStatus::InProgress | PlanLifecycleStatus::Done => None,
+        }
+    }
+}
+
+fn next_execution_action(
+    path: &Path,
+    plan: &NormalizedPlan,
     incomplete_items: usize,
 ) -> Option<String> {
-    match status {
-        PlanLifecycleStatus::Draft => Some(format!("planwarden approve {}", path.display())),
+    match plan.plan_status {
+        PlanLifecycleStatus::Draft if review_complete(plan) => {
+            Some(format!("planwarden approve {}", path.display()))
+        }
+        PlanLifecycleStatus::Draft => Some(format!("planwarden review-next {}", path.display())),
         PlanLifecycleStatus::Approved => Some(format!("planwarden start {}", path.display())),
         PlanLifecycleStatus::InProgress if incomplete_items == 0 => {
             Some(format!("planwarden complete {}", path.display()))
         }
         PlanLifecycleStatus::InProgress | PlanLifecycleStatus::Done => None,
     }
+}
+
+fn ensure_review_phase(path: &Path, plan: &NormalizedPlan) -> Result<()> {
+    match plan.plan_status {
+        PlanLifecycleStatus::Draft | PlanLifecycleStatus::Approved => Ok(()),
+        PlanLifecycleStatus::InProgress => bail!(
+            "cannot review plan sections while plan is `in_progress`; use `planwarden next {}` for execution work",
+            path.display()
+        ),
+        PlanLifecycleStatus::Done => {
+            bail!("cannot review plan sections after the plan is complete")
+        }
+    }
+}
+
+fn ensure_review_complete(path: &Path, plan: &NormalizedPlan) -> Result<()> {
+    if review_complete(plan) {
+        return Ok(());
+    }
+
+    let sections = review_sections(plan);
+    let next_section = next_review_section(plan, &sections)
+        .map(|section| section.title)
+        .unwrap_or_else(|| "unknown".to_string());
+    bail!(
+        "cannot approve plan before review is complete; next section is `{next_section}`. Run `planwarden review-next {}` and then `planwarden advance-review {}` until all sections are done",
+        path.display(),
+        path.display()
+    );
 }
 
 fn ensure_plan_in_progress(path: &Path, plan: &NormalizedPlan) -> Result<()> {
@@ -502,6 +864,10 @@ fn transition_plan_status(
             plan.plan_status.label(),
             from.label()
         );
+    }
+
+    if to == PlanLifecycleStatus::Approved {
+        ensure_review_complete(path, &plan)?;
     }
 
     let previous_status = plan.plan_status;
@@ -634,6 +1000,11 @@ fn render_list_section(markdown: &mut String, heading: &str, items: &[String]) -
 }
 
 fn render_concern(markdown: &mut String, label: &str, concern: &Concern) -> Result<()> {
+    writeln!(markdown, "{}", render_concern_line(label, concern))?;
+    Ok(())
+}
+
+fn render_concern_line(label: &str, concern: &Concern) -> String {
     let detail = if concern.applicable {
         concern.approach.as_deref().unwrap_or("missing approach")
     } else {
@@ -644,8 +1015,7 @@ fn render_concern(markdown: &mut String, label: &str, concern: &Concern) -> Resu
     } else {
         "not applicable"
     };
-    writeln!(markdown, "- {label}: {state}. {detail}")?;
-    Ok(())
+    format!("- {label}: {state}. {detail}")
 }
 
 fn extract_plan_from_markdown(markdown: &str) -> Result<NormalizedPlan> {
@@ -666,13 +1036,15 @@ fn extract_plan_from_markdown(markdown: &str) -> Result<NormalizedPlan> {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::{
-        approve_plan, complete_plan, extract_plan_from_json, load_plan_file, next_chunk,
-        set_status, start_plan, write_plan_file,
+        advance_review, approve_plan, complete_plan, extract_plan_from_json, load_plan_file,
+        next_chunk, review_next, set_status, start_plan, write_plan_file,
     };
     use crate::review::{
         NormalizedPlan, NormalizedPlanItem, PlanDocumentKind, PlanItemStatus, PlanKind,
-        PlanLifecycleStatus, ReviewQuestion, ReviewRequest, review_request,
+        PlanLifecycleStatus, PlanReviewSectionId, ReviewQuestion, ReviewRequest, review_request,
     };
 
     fn sample_plan() -> NormalizedPlan {
@@ -680,6 +1052,16 @@ mod tests {
             serde_json::from_str(include_str!("../examples/review-plan.json"))
                 .expect("example request should parse");
         review_request(PlanKind::Plan, request).normalized_plan
+    }
+
+    fn complete_review(path: &Path) {
+        loop {
+            let review = review_next(path, 3).expect("review should load");
+            if review.focus.is_none() {
+                break;
+            }
+            advance_review(path).expect("review section should complete");
+        }
     }
 
     #[test]
@@ -708,6 +1090,41 @@ mod tests {
 
         assert_eq!(loaded.title, plan.title);
         assert_eq!(loaded.items, plan.items);
+    }
+
+    #[test]
+    fn review_next_walks_sections_and_persists_progress() {
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let output = temp.path().join("plan.md");
+        let plan = sample_plan();
+
+        write_plan_file(&plan, Some(&output)).expect("plan should write");
+
+        let first = review_next(&output, 3).expect("review should load");
+        assert_eq!(first.progress.total, 7);
+        assert_eq!(first.progress.done, 0);
+        assert_eq!(
+            first.focus.expect("focus section should exist").id,
+            PlanReviewSectionId::Goal
+        );
+        assert_eq!(first.up_next[0].id, PlanReviewSectionId::Facts);
+
+        advance_review(&output).expect("goal should complete");
+        let second = review_next(&output, 3).expect("review should advance");
+        assert_eq!(
+            second.focus.expect("next focus section should exist").id,
+            PlanReviewSectionId::Facts
+        );
+
+        complete_review(&output);
+        let done = review_next(&output, 3).expect("completed review should load");
+        assert!(done.focus.is_none());
+        assert_eq!(done.progress.done, done.progress.total);
+        assert!(
+            done.next_action
+                .expect("completed review should suggest approval")
+                .contains("planwarden approve")
+        );
     }
 
     #[test]
@@ -740,6 +1157,7 @@ mod tests {
         let plan = sample_plan();
 
         write_plan_file(&plan, Some(&output)).expect("plan should write");
+        complete_review(&output);
         approve_plan(&output).expect("plan should approve");
         start_plan(&output).expect("plan should start");
         let updated =
@@ -896,9 +1314,10 @@ mod tests {
             draft_chunk
                 .next_action
                 .expect("draft should include next action")
-                .contains("planwarden approve")
+                .contains("planwarden review-next")
         );
 
+        complete_review(&output);
         approve_plan(&output).expect("plan should approve");
         let approved_chunk = next_chunk(&output, 3).expect("approved chunk should load");
         assert_eq!(approved_chunk.plan_status, PlanLifecycleStatus::Approved);
@@ -932,6 +1351,7 @@ mod tests {
         let plan = sample_plan();
 
         write_plan_file(&plan, Some(&output)).expect("plan should write");
+        complete_review(&output);
         let approved = approve_plan(&output).expect("plan should approve");
         assert_eq!(approved.previous_status, PlanLifecycleStatus::Draft);
         assert_eq!(approved.plan_status, PlanLifecycleStatus::Approved);
@@ -947,5 +1367,23 @@ mod tests {
 
         let loaded = load_plan_file(&output).expect("plan should reload");
         assert_eq!(loaded.plan_status, PlanLifecycleStatus::Done);
+    }
+
+    #[test]
+    fn approve_requires_review_completion() {
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let output = temp.path().join("plan.md");
+        let plan = sample_plan();
+
+        write_plan_file(&plan, Some(&output)).expect("plan should write");
+        let error = approve_plan(&output).expect_err("approve should fail before review is done");
+
+        assert!(
+            error
+                .to_string()
+                .contains("cannot approve plan before review is complete")
+        );
+        assert!(error.to_string().contains("planwarden review-next"));
+        assert!(error.to_string().contains("planwarden advance-review"));
     }
 }

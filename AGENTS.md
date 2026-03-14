@@ -13,8 +13,8 @@ Use `planwarden` as a schema-first planning workflow for AI agents. The agent in
 5. If the decision is `blocked` or `needs_input`, resolve `missing`, `questions`, and `pushback` before continuing.
 6. Run `planwarden create plan|task` once review is ready.
 7. Do not paste the full plan file into chat unless the user explicitly asks for it.
-8. Immediately run `planwarden next <plan-file> --format text` and show only that chunk in chat.
-9. Keep lifecycle and checklist state accurate with `approve`, `start`, `set-status`, and `complete`.
+8. Immediately run `planwarden review-next <plan-file> --format text` and show only that section in chat.
+9. Advance review with `planwarden advance-review <plan-file>` until every review section is complete, then `approve`, `start`, `set-status`, and `complete`.
 
 ## Planning Contract
 

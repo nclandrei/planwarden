@@ -39,7 +39,40 @@ fn create_plan(temp_dir: &Path, payload: impl Into<Vec<u8>>) -> PathBuf {
     )
 }
 
+fn complete_plan_review(path: &Path) {
+    loop {
+        let output = binary()
+            .args([
+                "review-next",
+                path.to_str().expect("utf8 path"),
+                "--format",
+                "json",
+                "--compact",
+            ])
+            .assert()
+            .success()
+            .get_output()
+            .stdout
+            .clone();
+        let response: Value =
+            serde_json::from_slice(&output).expect("review-next output should be valid JSON");
+        if response["focus"].is_null() {
+            break;
+        }
+
+        binary()
+            .args([
+                "advance-review",
+                path.to_str().expect("utf8 path"),
+                "--compact",
+            ])
+            .assert()
+            .success();
+    }
+}
+
 fn advance_plan_to_in_progress(path: &Path) {
+    complete_plan_review(path);
     binary()
         .args(["approve", path.to_str().expect("utf8 path"), "--compact"])
         .assert()
@@ -59,7 +92,7 @@ fn schema_review_plan_text_is_agent_facing() {
         .stdout(predicate::str::contains("Top-level fields"))
         .stdout(predicate::str::contains("Example payload"))
         .stdout(predicate::str::contains(
-            "planwarden next <plan-file> --format text",
+            "planwarden review-next <plan-file> --format text",
         ));
 }
 
@@ -71,6 +104,9 @@ fn top_level_help_describes_schema_first_flow() {
         .success()
         .stdout(predicate::str::contains(
             "planwarden schema review plan|task",
+        ))
+        .stdout(predicate::str::contains(
+            "planwarden review-next <plan-file> --format text",
         ))
         .stdout(predicate::str::contains(
             "planwarden next <plan-file> --format text",
@@ -93,7 +129,7 @@ fn create_help_points_to_next_chunk_flow() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "planwarden next <plan-file> --format text",
+            "planwarden review-next <plan-file> --format text",
         ));
 }
 
@@ -169,6 +205,58 @@ fn create_rejects_kind_mismatch() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("plan kind mismatch"));
+}
+
+#[test]
+fn create_rejects_non_ready_review_envelopes() {
+    let mut payload: Value =
+        serde_json::from_str(include_str!("../examples/review-plan.json")).expect("json");
+    payload["unknowns"] = serde_json::json!(["Pick the rollout order."]);
+
+    let review_output = binary()
+        .args(["review", "plan", "--compact"])
+        .write_stdin(payload.to_string())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    binary()
+        .args(["create", "plan"])
+        .write_stdin(review_output)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "review response decision must be `ready` before create can write a plan file",
+        ));
+}
+
+#[test]
+fn review_next_text_output_is_chunked_by_section() {
+    let temp = tempfile::tempdir().expect("tempdir should be created");
+    let path = create_plan(temp.path(), include_str!("../examples/review-plan.json"));
+
+    binary()
+        .args([
+            "review-next",
+            path.to_str().expect("utf8 path"),
+            "--format",
+            "text",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Plan Status: draft"))
+        .stdout(predicate::str::contains(
+            "Next step: planwarden advance-review",
+        ))
+        .stdout(predicate::str::contains(
+            "Review Progress: 0/7 section(s) done",
+        ))
+        .stdout(predicate::str::contains("Review Now"))
+        .stdout(predicate::str::contains("Goal"))
+        .stdout(predicate::str::contains("Up Next Review"))
+        .stdout(predicate::str::contains("Facts"));
 }
 
 #[test]
@@ -326,7 +414,33 @@ fn next_text_output_is_chunked_and_includes_questions() {
     }
     "#;
 
-    let path = create_plan(temp.path(), payload);
+    let review_output = binary()
+        .current_dir(temp.path())
+        .args(["review", "plan", "--compact"])
+        .write_stdin(payload)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let response: Value =
+        serde_json::from_slice(&review_output).expect("review output should be valid JSON");
+    let path = temp.path().join("plans/chunk-demo.md");
+    binary()
+        .current_dir(temp.path())
+        .args([
+            "create",
+            "plan",
+            "--compact",
+            "--output",
+            path.to_str().expect("utf8 path"),
+        ])
+        .write_stdin(
+            serde_json::to_vec(&response["normalized_plan"])
+                .expect("normalized plan should serialize"),
+        )
+        .assert()
+        .success();
 
     binary()
         .args([
@@ -338,7 +452,9 @@ fn next_text_output_is_chunked_and_includes_questions() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Plan Status: draft"))
-        .stdout(predicate::str::contains("Next step: planwarden approve"))
+        .stdout(predicate::str::contains(
+            "Next step: planwarden review-next",
+        ))
         .stdout(predicate::str::contains("Next Chunk"))
         .stdout(predicate::str::contains("Up Next"))
         .stdout(predicate::str::contains("Open Questions"))
@@ -379,7 +495,9 @@ fn lifecycle_commands_gate_execution_and_completion() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Plan Status: draft"))
-        .stdout(predicate::str::contains("Next step: planwarden approve"))
+        .stdout(predicate::str::contains(
+            "Next step: planwarden review-next",
+        ))
         .stdout(predicate::str::contains("Execution has not started yet"));
 
     binary()
@@ -389,6 +507,18 @@ fn lifecycle_commands_gate_execution_and_completion() {
         .stderr(predicate::str::contains(
             "cannot start plan while status is `draft`; expected `approved`",
         ));
+
+    binary()
+        .args(["approve", path.to_str().expect("utf8 path")])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "cannot approve plan before review is complete",
+        ))
+        .stderr(predicate::str::contains("planwarden review-next"))
+        .stderr(predicate::str::contains("planwarden advance-review"));
+
+    complete_plan_review(&path);
 
     binary()
         .args(["approve", path.to_str().expect("utf8 path"), "--compact"])

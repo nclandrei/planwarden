@@ -1,6 +1,6 @@
 # planwarden
 
-`planwarden` is a CLI planning enforcer for AI agents. The agent explores the repo and gathers facts; `planwarden` validates the planning contract, pushes back on weak slices, writes a durable plan file, and only surfaces the next chunk instead of a wall of text.
+`planwarden` is a CLI planning enforcer for AI agents. The agent explores the repo and gathers facts; `planwarden` validates the planning contract, pushes back on weak slices, writes a durable plan file, walks the user through review one section at a time, and only surfaces execution chunks instead of a wall of text.
 
 ## Install
 
@@ -24,12 +24,14 @@ planwarden review plan --input findings.json
 # 3. Write the full plan file once review is ready.
 planwarden create plan --input review.json
 
-# 4. Show only the current chunk in chat.
-planwarden next plans/my-plan.md --format text
+# 4. Review the draft section by section in chat.
+planwarden review-next plans/my-plan.md --format text
+planwarden advance-review plans/my-plan.md
 
-# 5. Move the plan through its lifecycle.
+# 5. Approve, start, and execute the plan.
 planwarden approve plans/my-plan.md
 planwarden start plans/my-plan.md
+planwarden next plans/my-plan.md --format text
 planwarden set-status plans/my-plan.md P1 in-progress
 planwarden complete plans/my-plan.md
 ```
@@ -42,8 +44,9 @@ planwarden complete plans/my-plan.md
 4. `planwarden` returns `decision`, `missing`, `questions`, `pushback`, and `normalized_plan`.
 5. The agent resolves any gaps before creating the plan file.
 6. The agent writes the full plan with `planwarden create`.
-7. The agent immediately runs `planwarden next <plan-file> --format text` and shows only that chunk in chat unless the user explicitly asks for the full plan.
-8. The plan moves through `draft -> approved -> in_progress -> done`.
+7. The agent immediately runs `planwarden review-next <plan-file> --format text`, shows only that section in chat, and advances review until every section is done.
+8. The agent approves and starts the plan only after review is complete, then uses `planwarden next <plan-file> --format text` for execution chunks.
+9. The plan moves through `draft -> approved -> in_progress -> done`.
 
 ## Working Contract
 
@@ -57,6 +60,8 @@ planwarden complete plans/my-plan.md
 - `planwarden schema review plan|task`
 - `planwarden review plan|task`
 - `planwarden create plan|task`
+- `planwarden review-next <plan-file>`
+- `planwarden advance-review <plan-file>`
 - `planwarden next <plan-file>`
 - `planwarden approve <plan-file>`
 - `planwarden start <plan-file>`

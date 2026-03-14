@@ -110,7 +110,7 @@ pub struct ReviewConcerns {
     pub bugfix_red: Concern,
 }
 
-#[derive(Debug, Serialize, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewDecision {
     Blocked,
@@ -177,7 +177,56 @@ pub struct NormalizedPlan {
     pub concerns: ReviewConcerns,
     #[serde(default)]
     pub open_questions: Vec<ReviewQuestion>,
+    #[serde(default)]
+    pub review_state: PlanReviewState,
     pub items: Vec<NormalizedPlanItem>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default, PartialEq, Eq)]
+pub struct PlanReviewState {
+    #[serde(default)]
+    pub completed_sections: Vec<PlanReviewSectionId>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanReviewSectionId {
+    Goal,
+    Facts,
+    Constraints,
+    AcceptanceCriteria,
+    Risks,
+    OpenQuestions,
+    Concerns,
+    Checklist,
+}
+
+impl PlanReviewSectionId {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Goal => "goal",
+            Self::Facts => "facts",
+            Self::Constraints => "constraints",
+            Self::AcceptanceCriteria => "acceptance_criteria",
+            Self::Risks => "risks",
+            Self::OpenQuestions => "open_questions",
+            Self::Concerns => "concerns",
+            Self::Checklist => "checklist",
+        }
+    }
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::Goal => "Goal",
+            Self::Facts => "Facts",
+            Self::Constraints => "Constraints",
+            Self::AcceptanceCriteria => "Acceptance Criteria",
+            Self::Risks => "Risks",
+            Self::OpenQuestions => "Open Questions",
+            Self::Concerns => "Concerns",
+            Self::Checklist => "Checklist",
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -480,6 +529,7 @@ fn normalize_plan(
         risks: request.risks.clone(),
         concerns: request.concerns.clone(),
         open_questions: questions.to_vec(),
+        review_state: PlanReviewState::default(),
         items,
     }
 }
