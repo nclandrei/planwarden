@@ -178,6 +178,9 @@ jobs:
       - name: Build global dist artifacts
         run: $HOME/.cargo/bin/dist build --tag "${{ needs.prepare-release.outputs.release_tag }}" --artifacts=global --output-format=json --allow-dirty > dist-global.json
 
+      - name: Patch Homebrew formula checksums
+        run: ./scripts/patch-homebrew-formula-checksums.sh target/distrib
+
       - name: Upload global artifacts to GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
