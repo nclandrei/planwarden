@@ -457,7 +457,6 @@ fn normalize_plan(
     let items = request
         .proposed_slices
         .iter()
-        .into_iter()
         .enumerate()
         .map(|(index, slice)| NormalizedPlanItem {
             id: format!("{}{}", kind.id_prefix(), index + 1),
