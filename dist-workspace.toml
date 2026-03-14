@@ -1,0 +1,15 @@
+[workspace]
+members = ["cargo:."]
+
+[dist]
+cargo-dist-version = "0.31.0"
+ci = "github"
+installers = ["shell", "homebrew"]
+tap = "nclandrei/homebrew-tap"
+formula = "planwarden"
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu"]
+publish-jobs = ["homebrew"]
+display-name = "planwarden"
+install-path = "CARGO_HOME"
+hosting = "github"
+install-updater = false
