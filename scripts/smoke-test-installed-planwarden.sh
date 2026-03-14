@@ -14,7 +14,11 @@ trap cleanup EXIT
 if [[ -f "${binary}" && "${binary}" == *.tar.xz ]]; then
   tmpdir="$(mktemp -d)"
   tar -xJf "${binary}" -C "${tmpdir}"
-  binary="${tmpdir}/planwarden"
+  binary="$(find "${tmpdir}" -type f -name planwarden | head -n 1)"
+  if [[ -z "${binary}" || ! -x "${binary}" ]]; then
+    echo "could not find extracted planwarden binary in ${tmpdir}" >&2
+    exit 1
+  fi
 fi
 
 "${binary}" --help >/dev/null
