@@ -43,6 +43,7 @@ Examples:
 - [x] Add tests for JSON parsing, rule evaluation, and markdown rendering.
 - [x] Add self-describing schema/help output so agents can learn the review contract from the CLI.
 - [x] Polish `next` so it returns smaller, more actionable chunks with progress and open questions.
+- [x] Add plan lifecycle state with explicit `approve`, `start`, and `complete` transitions.
 - [ ] Package the CLI for personal Homebrew install.
 
 ## First Command Set

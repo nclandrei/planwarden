@@ -167,6 +167,7 @@ impl PlanDocumentKind {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct NormalizedPlan {
     pub kind: PlanDocumentKind,
+    pub plan_status: PlanLifecycleStatus,
     pub title: String,
     pub goal: String,
     pub facts: Vec<String>,
@@ -204,6 +205,26 @@ impl PlanItemStatus {
             Self::Todo => "[ ]",
             Self::InProgress => "[-]",
             Self::Done => "[x]",
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanLifecycleStatus {
+    Draft,
+    Approved,
+    InProgress,
+    Done,
+}
+
+impl PlanLifecycleStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Draft => "draft",
+            Self::Approved => "approved",
+            Self::InProgress => "in_progress",
+            Self::Done => "done",
         }
     }
 }
@@ -451,6 +472,7 @@ fn normalize_plan(
 
     NormalizedPlan {
         kind: kind.into(),
+        plan_status: PlanLifecycleStatus::Draft,
         title,
         goal: request.goal.clone(),
         facts: request.facts.clone(),

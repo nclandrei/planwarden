@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use planwarden::plan_file::{
-    extract_plan_from_json, next_chunk, render_next_chunk_text, set_status, write_plan_file,
+    approve_plan, complete_plan, extract_plan_from_json, next_chunk, render_next_chunk_text,
+    set_status, start_plan, write_plan_file,
 };
 use planwarden::review::{PlanItemStatus, PlanKind, ReviewRequest, review_request};
 use planwarden::schema::{render_review_schema_text, review_schema};
@@ -45,6 +46,12 @@ enum Command {
     Next(NextArgs),
     #[command(about = "Update one checklist item to todo, in_progress, or done.")]
     SetStatus(SetStatusArgs),
+    #[command(about = "Mark a draft plan as approved.")]
+    Approve(PlanFileArgs),
+    #[command(about = "Move an approved plan into execution.")]
+    Start(PlanFileArgs),
+    #[command(about = "Mark an in-progress plan as done once every item is complete.")]
+    Complete(PlanFileArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -142,6 +149,15 @@ struct SetStatusArgs {
     compact: bool,
 }
 
+#[derive(Debug, Args)]
+struct PlanFileArgs {
+    /// Path to a markdown plan file created by Planwarden.
+    plan_file: PathBuf,
+    /// Emit compact JSON instead of pretty-printed JSON.
+    #[arg(long)]
+    compact: bool,
+}
+
 #[derive(Debug, Clone, ValueEnum)]
 enum CliStatus {
     Todo,
@@ -225,6 +241,18 @@ fn run() -> Result<()> {
         }
         Command::SetStatus(args) => {
             let response = set_status(&args.plan_file, &args.item_id, args.status.into())?;
+            print_json(&response, args.compact)?;
+        }
+        Command::Approve(args) => {
+            let response = approve_plan(&args.plan_file)?;
+            print_json(&response, args.compact)?;
+        }
+        Command::Start(args) => {
+            let response = start_plan(&args.plan_file)?;
+            print_json(&response, args.compact)?;
+        }
+        Command::Complete(args) => {
+            let response = complete_plan(&args.plan_file)?;
             print_json(&response, args.compact)?;
         }
     }

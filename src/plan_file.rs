@@ -6,7 +6,10 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::review::{Concern, NormalizedPlan, NormalizedPlanItem, PlanItemStatus, ReviewQuestion};
+use crate::review::{
+    Concern, NormalizedPlan, NormalizedPlanItem, PlanItemStatus, PlanLifecycleStatus,
+    ReviewQuestion,
+};
 
 const START_MARKER: &str = "<!-- planwarden:data:start -->";
 const END_MARKER: &str = "<!-- planwarden:data:end -->";
@@ -22,17 +25,28 @@ pub struct CreatePlanResponse {
 pub struct NextChunkResponse {
     pub path: String,
     pub title: String,
+    pub plan_status: PlanLifecycleStatus,
     pub progress: ProgressSummary,
     pub focus: Option<ChunkItem>,
     pub up_next: Vec<ChunkItem>,
     pub open_questions: Vec<ReviewQuestion>,
     pub remaining_items: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_action: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct StatusUpdateResponse {
     pub path: String,
     pub item: ChunkItem,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PlanLifecycleResponse {
+    pub path: String,
+    pub title: String,
+    pub previous_status: PlanLifecycleStatus,
+    pub plan_status: PlanLifecycleStatus,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -113,15 +127,18 @@ pub fn next_chunk(path: &Path, limit: usize) -> Result<NextChunkResponse> {
     let plan = load_plan_file(path)?;
     let progress = compute_progress(&plan);
     let (focus, up_next, remaining_items) = select_chunk_items(&plan, limit.max(1));
+    let incomplete_items = progress.todo + progress.in_progress;
 
     Ok(NextChunkResponse {
         path: path.display().to_string(),
         title: plan.title,
+        plan_status: plan.plan_status,
         progress,
         focus,
         up_next,
         open_questions: plan.open_questions.into_iter().take(limit.max(1)).collect(),
         remaining_items,
+        next_action: next_action(path, plan.plan_status, incomplete_items),
     })
 }
 
@@ -131,6 +148,7 @@ pub fn set_status(
     status: PlanItemStatus,
 ) -> Result<StatusUpdateResponse> {
     let mut plan = load_plan_file(path)?;
+    ensure_plan_in_progress(path, &plan)?;
     let position = plan
         .items
         .iter()
@@ -149,9 +167,83 @@ pub fn set_status(
     })
 }
 
+pub fn approve_plan(path: &Path) -> Result<PlanLifecycleResponse> {
+    transition_plan_status(
+        path,
+        PlanLifecycleStatus::Draft,
+        PlanLifecycleStatus::Approved,
+        "approve",
+    )
+}
+
+pub fn start_plan(path: &Path) -> Result<PlanLifecycleResponse> {
+    transition_plan_status(
+        path,
+        PlanLifecycleStatus::Approved,
+        PlanLifecycleStatus::InProgress,
+        "start",
+    )
+}
+
+pub fn complete_plan(path: &Path) -> Result<PlanLifecycleResponse> {
+    let mut plan = load_plan_file(path)?;
+    if plan.plan_status != PlanLifecycleStatus::InProgress {
+        bail!(
+            "cannot complete plan while status is `{}`; run `planwarden start {}` first",
+            plan.plan_status.label(),
+            path.display()
+        );
+    }
+
+    let incomplete = plan
+        .items
+        .iter()
+        .filter(|item| item.status != PlanItemStatus::Done)
+        .map(|item| item.id.clone())
+        .collect::<Vec<_>>();
+    if !incomplete.is_empty() {
+        bail!(
+            "cannot complete plan while items remain incomplete: {}",
+            incomplete.join(", ")
+        );
+    }
+
+    let previous_status = plan.plan_status;
+    plan.plan_status = PlanLifecycleStatus::Done;
+    write_updated_plan(path, &plan)?;
+    Ok(PlanLifecycleResponse {
+        path: path.display().to_string(),
+        title: plan.title,
+        previous_status,
+        plan_status: plan.plan_status,
+    })
+}
+
 pub fn render_next_chunk_text(response: &NextChunkResponse) -> String {
     let mut output = String::new();
     let _ = writeln!(&mut output, "{}", response.title);
+    let _ = writeln!(&mut output, "Plan Status: {}", response.plan_status.label());
+    if let Some(next_action) = &response.next_action {
+        let _ = writeln!(&mut output, "Next step: {next_action}");
+    }
+    match response.plan_status {
+        PlanLifecycleStatus::Draft => {
+            let _ = writeln!(
+                &mut output,
+                "Execution has not started yet. This is a preview of the next chunk."
+            );
+        }
+        PlanLifecycleStatus::Approved => {
+            let _ = writeln!(
+                &mut output,
+                "Execution has not started yet. Start the plan before updating checklist items."
+            );
+        }
+        PlanLifecycleStatus::InProgress => {}
+        PlanLifecycleStatus::Done => {
+            let _ = writeln!(&mut output, "Plan is complete.");
+        }
+    }
     let _ = writeln!(
         &mut output,
         "Progress: {}/{} done, {} in progress, {} todo",
@@ -162,8 +254,14 @@ pub fn render_next_chunk_text(response: &NextChunkResponse) -> String {
     );
     let _ = writeln!(&mut output);
 
+    let heading = if response.plan_status == PlanLifecycleStatus::InProgress {
+        "Focus"
+    } else {
+        "Next Chunk"
+    };
+
     if let Some(focus) = &response.focus {
-        let _ = writeln!(&mut output, "Focus");
+        let _ = writeln!(&mut output, "{heading}");
         let _ = writeln!(
             &mut output,
             "{} {} {} ({}m)",
@@ -182,7 +280,7 @@ pub fn render_next_chunk_text(response: &NextChunkResponse) -> String {
         }
         let _ = writeln!(&mut output);
     } else {
-        let _ = writeln!(&mut output, "Focus");
+        let _ = writeln!(&mut output, "{heading}");
         let _ = writeln!(&mut output, "No incomplete items remain.");
         let _ = writeln!(&mut output);
     }
@@ -357,6 +455,70 @@ fn chunk_item_from_done_ids(item: &NormalizedPlanItem, done_ids: &[&str]) -> Chu
     }
 }
 
+fn next_action(
+    path: &Path,
+    status: PlanLifecycleStatus,
+    incomplete_items: usize,
+) -> Option<String> {
+    match status {
+        PlanLifecycleStatus::Draft => Some(format!("planwarden approve {}", path.display())),
+        PlanLifecycleStatus::Approved => Some(format!("planwarden start {}", path.display())),
+        PlanLifecycleStatus::InProgress if incomplete_items == 0 => {
+            Some(format!("planwarden complete {}", path.display()))
+        }
+        PlanLifecycleStatus::InProgress | PlanLifecycleStatus::Done => None,
+    }
+}
+
+fn ensure_plan_in_progress(path: &Path, plan: &NormalizedPlan) -> Result<()> {
+    match plan.plan_status {
+        PlanLifecycleStatus::InProgress => Ok(()),
+        PlanLifecycleStatus::Draft => bail!(
+            "cannot update item status while plan is `draft`; run `planwarden approve {}` and then `planwarden start {}` first",
+            path.display(),
+            path.display()
+        ),
+        PlanLifecycleStatus::Approved => bail!(
+            "cannot update item status while plan is `approved`; run `planwarden start {}` first",
+            path.display()
+        ),
+        PlanLifecycleStatus::Done => bail!("cannot update item status on a completed plan"),
+    }
+}
+
+fn transition_plan_status(
+    path: &Path,
+    from: PlanLifecycleStatus,
+    to: PlanLifecycleStatus,
+    verb: &str,
+) -> Result<PlanLifecycleResponse> {
+    let mut plan = load_plan_file(path)?;
+    if plan.plan_status != from {
+        bail!(
+            "cannot {verb} plan while status is `{}`; expected `{}`",
+            plan.plan_status.label(),
+            from.label()
+        );
+    }
+
+    let previous_status = plan.plan_status;
+    plan.plan_status = to;
+    write_updated_plan(path, &plan)?;
+
+    Ok(PlanLifecycleResponse {
+        path: path.display().to_string(),
+        title: plan.title,
+        previous_status,
+        plan_status: plan.plan_status,
+    })
+}
+
+fn write_updated_plan(path: &Path, plan: &NormalizedPlan) -> Result<()> {
+    let markdown = render_markdown(plan)?;
+    fs::write(path, markdown)
+        .with_context(|| format!("failed to update plan file {}", path.display()))
+}
+
 fn render_markdown(plan: &NormalizedPlan) -> Result<String> {
     let data = serde_json::to_string_pretty(plan).context("failed to serialize plan data")?;
     let mut markdown = String::new();
@@ -370,6 +532,11 @@ fn render_markdown(plan: &NormalizedPlan) -> Result<String> {
     writeln!(&mut markdown, "## Goal")?;
     writeln!(&mut markdown)?;
     writeln!(&mut markdown, "{}", plan.goal)?;
+    writeln!(&mut markdown)?;
+
+    writeln!(&mut markdown, "## Plan Status")?;
+    writeln!(&mut markdown)?;
+    writeln!(&mut markdown, "- {}", plan.plan_status.label())?;
     writeln!(&mut markdown)?;
 
     render_list_section(&mut markdown, "Facts", &plan.facts)?;
@@ -496,10 +663,13 @@ fn extract_plan_from_markdown(markdown: &str) -> Result<NormalizedPlan> {
 
 #[cfg(test)]
 mod tests {
-    use super::{extract_plan_from_json, load_plan_file, next_chunk, set_status, write_plan_file};
+    use super::{
+        approve_plan, complete_plan, extract_plan_from_json, load_plan_file, next_chunk,
+        set_status, start_plan, write_plan_file,
+    };
     use crate::review::{
         NormalizedPlan, NormalizedPlanItem, PlanDocumentKind, PlanItemStatus, PlanKind,
-        ReviewQuestion, ReviewRequest, review_request,
+        PlanLifecycleStatus, ReviewQuestion, ReviewRequest, review_request,
     };
 
     fn sample_plan() -> NormalizedPlan {
@@ -520,6 +690,7 @@ mod tests {
         let plan = extract_plan_from_json(&raw).expect("plan should extract");
 
         assert_eq!(plan.kind, PlanDocumentKind::Roadmap);
+        assert_eq!(plan.plan_status, PlanLifecycleStatus::Draft);
         assert_eq!(plan.items.len(), 1);
     }
 
@@ -566,13 +737,33 @@ mod tests {
         let plan = sample_plan();
 
         write_plan_file(&plan, Some(&output)).expect("plan should write");
+        approve_plan(&output).expect("plan should approve");
+        start_plan(&output).expect("plan should start");
         let updated =
             set_status(&output, "R1", PlanItemStatus::InProgress).expect("status should update");
         let loaded = load_plan_file(&output).expect("plan should reload");
 
         assert_eq!(updated.item.status, PlanItemStatus::InProgress);
         assert!(updated.item.blocked_by.is_empty());
+        assert_eq!(loaded.plan_status, PlanLifecycleStatus::InProgress);
         assert_eq!(loaded.items[0].status, PlanItemStatus::InProgress);
+    }
+
+    #[test]
+    fn set_status_requires_plan_to_be_in_progress() {
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let output = temp.path().join("roadmap.md");
+        let plan = sample_plan();
+
+        write_plan_file(&plan, Some(&output)).expect("plan should write");
+        let error =
+            set_status(&output, "R1", PlanItemStatus::InProgress).expect_err("draft should fail");
+
+        assert!(
+            error
+                .to_string()
+                .contains("cannot update item status while plan is `draft`")
+        );
     }
 
     #[test]
@@ -623,6 +814,7 @@ mod tests {
             code: "unknown_1".into(),
             prompt: "Clarify the owner vs admin access model.".into(),
         }];
+        plan.plan_status = PlanLifecycleStatus::InProgress;
         plan.items[0].status = PlanItemStatus::InProgress;
         plan.items.push(NormalizedPlanItem {
             id: "R2".into(),
@@ -642,6 +834,7 @@ mod tests {
         assert_eq!(chunk.up_next.len(), 1);
         assert_eq!(chunk.open_questions.len(), 1);
         assert_eq!(chunk.open_questions[0].code, "unknown_1");
+        assert!(chunk.next_action.is_none());
     }
 
     #[test]
@@ -649,6 +842,7 @@ mod tests {
         let temp = tempfile::tempdir().expect("tempdir should be created");
         let output = temp.path().join("roadmap.md");
         let mut plan = sample_plan();
+        plan.plan_status = PlanLifecycleStatus::InProgress;
         plan.items.push(NormalizedPlanItem {
             id: "R2".into(),
             status: PlanItemStatus::Todo,
@@ -675,5 +869,80 @@ mod tests {
         assert_eq!(chunk.up_next[0].id, "R3");
         assert_eq!(chunk.up_next[1].id, "R2");
         assert_eq!(chunk.up_next[1].blocked_by, vec!["R3".to_string()]);
+    }
+
+    #[test]
+    fn next_chunk_guides_lifecycle_before_execution_and_after_completion() {
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let output = temp.path().join("roadmap.md");
+        let mut plan = sample_plan();
+        plan.items.push(NormalizedPlanItem {
+            id: "R2".into(),
+            status: PlanItemStatus::Done,
+            title: "Already done".into(),
+            summary: "Completed slice".into(),
+            estimated_minutes: 30,
+            dependencies: Vec::new(),
+            acceptance_criteria: vec!["It exists.".into()],
+        });
+
+        write_plan_file(&plan, Some(&output)).expect("plan should write");
+        let draft_chunk = next_chunk(&output, 3).expect("draft chunk should load");
+        assert_eq!(draft_chunk.plan_status, PlanLifecycleStatus::Draft);
+        assert!(
+            draft_chunk
+                .next_action
+                .expect("draft should include next action")
+                .contains("planwarden approve")
+        );
+
+        approve_plan(&output).expect("plan should approve");
+        let approved_chunk = next_chunk(&output, 3).expect("approved chunk should load");
+        assert_eq!(approved_chunk.plan_status, PlanLifecycleStatus::Approved);
+        assert!(
+            approved_chunk
+                .next_action
+                .expect("approved should include next action")
+                .contains("planwarden start")
+        );
+
+        start_plan(&output).expect("plan should start");
+        set_status(&output, "R1", PlanItemStatus::Done).expect("item should complete");
+        let ready_to_complete = next_chunk(&output, 3).expect("completed chunk should load");
+        assert_eq!(
+            ready_to_complete.plan_status,
+            PlanLifecycleStatus::InProgress
+        );
+        assert_eq!(ready_to_complete.remaining_items, 0);
+        assert!(
+            ready_to_complete
+                .next_action
+                .expect("done work should suggest completion")
+                .contains("planwarden complete")
+        );
+    }
+
+    #[test]
+    fn plan_lifecycle_transitions_persist_to_disk() {
+        let temp = tempfile::tempdir().expect("tempdir should be created");
+        let output = temp.path().join("roadmap.md");
+        let plan = sample_plan();
+
+        write_plan_file(&plan, Some(&output)).expect("plan should write");
+        let approved = approve_plan(&output).expect("plan should approve");
+        assert_eq!(approved.previous_status, PlanLifecycleStatus::Draft);
+        assert_eq!(approved.plan_status, PlanLifecycleStatus::Approved);
+
+        let started = start_plan(&output).expect("plan should start");
+        assert_eq!(started.previous_status, PlanLifecycleStatus::Approved);
+        assert_eq!(started.plan_status, PlanLifecycleStatus::InProgress);
+
+        set_status(&output, "R1", PlanItemStatus::Done).expect("item should complete");
+        let completed = complete_plan(&output).expect("plan should complete");
+        assert_eq!(completed.previous_status, PlanLifecycleStatus::InProgress);
+        assert_eq!(completed.plan_status, PlanLifecycleStatus::Done);
+
+        let loaded = load_plan_file(&output).expect("plan should reload");
+        assert_eq!(loaded.plan_status, PlanLifecycleStatus::Done);
     }
 }
