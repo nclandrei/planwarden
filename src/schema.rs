@@ -71,7 +71,7 @@ pub fn review_schema(kind: PlanKind) -> ReviewSchema {
                 "proposed_slices",
                 true,
                 "slice[]",
-                "At least one execution slice with title, summary, estimated_minutes, dependencies, and acceptance_criteria.",
+                "At least one execution slice with title, summary, dependencies, and acceptance_criteria.",
             ),
             field(
                 "concerns",
@@ -139,7 +139,6 @@ pub fn review_schema(kind: PlanKind) -> ReviewSchema {
                 "If `applicable` is false, provide `reason`.".to_string(),
                 "Bugfix work must keep `bugfix_red.applicable = true`; otherwise review blocks.".to_string(),
                 "User-visible work should include regression or smoke coverage; otherwise review pushes back.".to_string(),
-                "Slices over 90 minutes are pushed back as too large.".to_string(),
                 "Signals and concerns must agree. For example, touching authorization cannot mark authorization review as not applicable.".to_string(),
             ],
         },
@@ -211,10 +210,10 @@ mod tests {
         );
         assert!(
             schema
-                .concern_rule
-                .rules
+                .fields
                 .iter()
-                .any(|rule| rule.contains("90 minutes"))
+                .any(|field| field.name == "proposed_slices"
+                    && !field.description.contains("estimated_minutes"))
         );
     }
 

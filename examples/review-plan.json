@@ -28,7 +28,6 @@
     {
       "title": "Wire settings action",
       "summary": "Add the settings action that creates a portal session through the existing backend endpoint.",
-      "estimated_minutes": 45,
       "dependencies": [],
       "acceptance_criteria": [
         "The settings page shows a billing portal action for eligible users."

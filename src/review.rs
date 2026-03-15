@@ -72,7 +72,6 @@ pub struct ReviewSignals {
 pub struct ProposedSlice {
     pub title: String,
     pub summary: String,
-    pub estimated_minutes: u32,
     #[serde(default)]
     pub dependencies: Vec<String>,
     #[serde(default)]
@@ -235,7 +234,6 @@ pub struct NormalizedPlanItem {
     pub status: PlanItemStatus,
     pub title: String,
     pub summary: String,
-    pub estimated_minutes: u32,
     pub dependencies: Vec<String>,
     pub acceptance_criteria: Vec<String>,
 }
@@ -451,16 +449,6 @@ pub fn review_request(kind: PlanKind, request: ReviewRequest) -> ReviewResponse 
             ));
         }
 
-        if slice.estimated_minutes > 90 {
-            pushback.push(issue(
-                format!("slice_{slice_number}_too_large"),
-                format!(
-                    "Slice {slice_number} is estimated at {} minutes; split it into a smaller chunk.",
-                    slice.estimated_minutes
-                ),
-                Some(format!("proposed_slices[{index}].estimated_minutes")),
-            ));
-        }
     }
 
     for (index, unknown) in request.unknowns.iter().enumerate() {
@@ -512,7 +500,6 @@ fn normalize_plan(
             status: PlanItemStatus::Todo,
             title: slice.title.clone(),
             summary: slice.summary.clone(),
-            estimated_minutes: slice.estimated_minutes,
             dependencies: slice.dependencies.clone(),
             acceptance_criteria: slice.acceptance_criteria.clone(),
         })
@@ -601,7 +588,6 @@ mod tests {
                 {
                   "title": "Wire settings action",
                   "summary": "Add the settings action that creates a portal session through the existing backend endpoint.",
-                  "estimated_minutes": 45,
                   "dependencies": [],
                   "acceptance_criteria": ["The settings page shows a billing portal action for eligible users."]
                 }
@@ -689,12 +675,11 @@ mod tests {
     }
 
     #[test]
-    fn review_blocks_inconsistent_auth_and_oversized_slice() {
+    fn review_blocks_inconsistent_auth() {
         let mut request = ready_request();
         request.signals.touches_authorization = true;
         request.concerns.authorization.applicable = false;
         request.concerns.authorization.reason = Some("Not needed.".into());
-        request.proposed_slices[0].estimated_minutes = 180;
 
         let response = review_request(PlanKind::Task, request);
 
@@ -704,12 +689,6 @@ mod tests {
                 .pushback
                 .iter()
                 .any(|issue| issue.code == "authorization_inconsistent")
-        );
-        assert!(
-            response
-                .pushback
-                .iter()
-                .any(|issue| issue.code == "slice_1_too_large")
         );
     }
 
@@ -768,7 +747,6 @@ mod tests {
               "proposed_slices": [{
                 "title": "One slice",
                 "summary": "Do one thing.",
-                "estimated_minutes": 30,
                 "acceptance_criteria": ["Still works."]
               }],
               "concerns": {

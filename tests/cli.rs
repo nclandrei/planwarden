@@ -95,7 +95,8 @@ fn schema_review_plan_text_is_agent_facing() {
         .stdout(predicate::str::contains("Do not dump"))
         .stdout(predicate::str::contains(
             "planwarden review-next <plan-file> --format text",
-        ));
+        ))
+        .stdout(predicate::str::contains("estimated_minutes").not());
 }
 
 #[test]
@@ -168,7 +169,6 @@ fn review_rejects_unknown_input_fields() {
       "proposed_slices": [{
         "title": "One slice",
         "summary": "Do one thing",
-        "estimated_minutes": 30,
         "acceptance_criteria": ["It still works"]
       }],
       "concerns": {
@@ -372,14 +372,12 @@ fn next_respects_limit_and_status_updates() {
       {
         "title": "First slice",
         "summary": "Do the first thing.",
-        "estimated_minutes": 30,
         "dependencies": [],
         "acceptance_criteria": ["First works."]
       },
       {
         "title": "Second slice",
         "summary": "Do the second thing.",
-        "estimated_minutes": 30,
         "dependencies": ["P1"],
         "acceptance_criteria": ["Second works."]
       }
@@ -441,14 +439,12 @@ fn next_text_output_is_chunked_and_includes_questions() {
         {
           "title": "Focus slice",
           "summary": "Do the current thing.",
-          "estimated_minutes": 30,
           "dependencies": [],
           "acceptance_criteria": ["Current thing works."]
         },
         {
           "title": "Follow-up slice",
           "summary": "Do the next thing.",
-          "estimated_minutes": 30,
           "dependencies": ["P1"],
           "acceptance_criteria": ["Next thing works."]
         }
@@ -514,7 +510,8 @@ fn next_text_output_is_chunked_and_includes_questions() {
         .stdout(predicate::str::contains("Next Chunk"))
         .stdout(predicate::str::contains("Up Next"))
         .stdout(predicate::str::contains("Open Questions"))
-        .stdout(predicate::str::contains("unknown_1"));
+        .stdout(predicate::str::contains("unknown_1"))
+        .stdout(predicate::str::contains("(30m)").not());
 }
 
 #[test]

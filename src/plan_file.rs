@@ -141,7 +141,6 @@ pub struct ChunkItem {
     pub status: PlanItemStatus,
     pub title: String,
     pub summary: String,
-    pub estimated_minutes: u32,
     pub dependencies: Vec<String>,
     pub blocked_by: Vec<String>,
     pub acceptance_criteria: Vec<String>,
@@ -407,11 +406,8 @@ pub fn render_next_chunk_text(response: &NextChunkResponse) -> String {
         let _ = writeln!(&mut output, "{heading}");
         let _ = writeln!(
             &mut output,
-            "{} {} {} ({}m)",
-            focus.status.checkbox(),
-            focus.id,
-            focus.title,
-            focus.estimated_minutes
+            "{} {} {}",
+            focus.status.checkbox(), focus.id, focus.title
         );
         let _ = writeln!(&mut output, "Summary: {}", focus.summary);
         if !focus.blocked_by.is_empty() {
@@ -431,14 +427,7 @@ pub fn render_next_chunk_text(response: &NextChunkResponse) -> String {
     if !response.up_next.is_empty() {
         let _ = writeln!(&mut output, "Up Next");
         for item in &response.up_next {
-            let _ = writeln!(
-                &mut output,
-                "{} {} {} ({}m)",
-                item.status.checkbox(),
-                item.id,
-                item.title,
-                item.estimated_minutes
-            );
+            let _ = writeln!(&mut output, "{} {} {}", item.status.checkbox(), item.id, item.title);
             if !item.blocked_by.is_empty() {
                 let _ = writeln!(&mut output, "Blocked by: {}", item.blocked_by.join(", "));
             }
@@ -714,11 +703,8 @@ fn render_checklist_lines(plan: &NormalizedPlan) -> Vec<String> {
     let mut lines = Vec::new();
     for item in &plan.items {
         lines.push(format!(
-            "- {} {} {} ({}m)",
-            item.status.checkbox(),
-            item.id,
-            item.title,
-            item.estimated_minutes
+            "- {} {} {}",
+            item.status.checkbox(), item.id, item.title
         ));
         lines.push(format!("  Summary: {}", item.summary));
         if item.dependencies.is_empty() {
@@ -827,7 +813,6 @@ fn chunk_item_from_done_ids(item: &NormalizedPlanItem, done_ids: &[&str]) -> Chu
         status: item.status,
         title: item.title.clone(),
         summary: item.summary.clone(),
-        estimated_minutes: item.estimated_minutes,
         dependencies: item.dependencies.clone(),
         blocked_by,
         acceptance_criteria: item.acceptance_criteria.clone(),
@@ -1092,11 +1077,8 @@ fn render_markdown(plan: &NormalizedPlan) -> Result<String> {
     for item in &plan.items {
         writeln!(
             &mut markdown,
-            "- {} {} {} ({}m)",
-            item.status.checkbox(),
-            item.id,
-            item.title,
-            item.estimated_minutes
+            "- {} {} {}",
+            item.status.checkbox(), item.id, item.title
         )?;
         writeln!(&mut markdown, "  Summary: {}", item.summary)?;
         if item.dependencies.is_empty() {
@@ -1288,7 +1270,6 @@ mod tests {
             status: PlanItemStatus::Done,
             title: "Already done".into(),
             summary: "Completed slice".into(),
-            estimated_minutes: 30,
             dependencies: Vec::new(),
             acceptance_criteria: vec!["It exists.".into()],
         });
@@ -1393,7 +1374,6 @@ mod tests {
             status: PlanItemStatus::Todo,
             title: "Second slice".into(),
             summary: "Do the next thing.".into(),
-            estimated_minutes: 30,
             dependencies: vec!["P1".into()],
             acceptance_criteria: vec!["Still works.".into()],
         });
@@ -1420,7 +1400,6 @@ mod tests {
             status: PlanItemStatus::Todo,
             title: "Blocked slice".into(),
             summary: "Cannot start yet.".into(),
-            estimated_minutes: 30,
             dependencies: vec!["P3".into()],
             acceptance_criteria: vec!["Eventually works.".into()],
         });
@@ -1429,7 +1408,6 @@ mod tests {
             status: PlanItemStatus::Todo,
             title: "Dependency slice".into(),
             summary: "Must happen first.".into(),
-            estimated_minutes: 30,
             dependencies: Vec::new(),
             acceptance_criteria: vec!["Dependency works.".into()],
         });
@@ -1453,7 +1431,6 @@ mod tests {
             status: PlanItemStatus::Done,
             title: "Already done".into(),
             summary: "Completed slice".into(),
-            estimated_minutes: 30,
             dependencies: Vec::new(),
             acceptance_criteria: vec!["It exists.".into()],
         });
