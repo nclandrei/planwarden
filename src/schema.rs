@@ -47,6 +47,7 @@ pub fn review_schema(kind: PlanKind) -> ReviewSchema {
             "If a concern does not apply, the agent must say so explicitly and justify it.".to_string(),
             "After `create`, the agent should call `planwarden review-next <plan-file> --format text`, show only that section in chat, ask the user to approve it or raise concerns, and only then advance review. Use a question tool if the host has one; otherwise ask in plain chat.".to_string(),
             "Do not dump or summarize the full plan while review is still section-by-section. If the user raises concerns, discuss or revise the plan first, then continue review.".to_string(),
+            "Hosts that call `planwarden review-next <plan-file> --format json` receive an `approval` block with a prompt, response options, an advance command, and host-aware naming hints so they do not need to scrape the text renderer.".to_string(),
         ],
         fields: vec![
             field("title", false, "string", "Optional display title; defaults to `goal`."),

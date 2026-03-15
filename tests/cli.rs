@@ -137,6 +137,15 @@ fn create_help_points_to_next_chunk_flow() {
 }
 
 #[test]
+fn review_next_help_mentions_structured_approval_metadata() {
+    binary()
+        .args(["review-next", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("structured approval metadata"));
+}
+
+#[test]
 fn review_rejects_unknown_input_fields() {
     let payload = r#"
     {
@@ -265,6 +274,45 @@ fn review_next_text_output_is_chunked_by_section() {
         ))
         .stdout(predicate::str::contains("Up Next Review"))
         .stdout(predicate::str::contains("Facts"));
+}
+
+#[test]
+fn review_next_json_output_includes_structured_approval_metadata() {
+    let temp = tempfile::tempdir().expect("tempdir should be created");
+    let path = create_plan(temp.path(), include_str!("../examples/review-plan.json"));
+
+    let output = binary()
+        .args([
+            "review-next",
+            path.to_str().expect("utf8 path"),
+            "--format",
+            "json",
+            "--compact",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let response: Value =
+        serde_json::from_slice(&output).expect("review-next output should be valid JSON");
+
+    assert_eq!(response["approval"]["required"], true);
+    assert_eq!(response["approval"]["section_title"], "Goal");
+    assert!(
+        response["approval"]["prompt"]
+            .as_str()
+            .expect("approval prompt should exist")
+            .contains("Goal")
+    );
+    assert_eq!(response["approval"]["options"][0]["id"], "approve");
+    assert_eq!(response["approval"]["options"][0]["advance_review"], true);
+    assert_eq!(response["approval"]["host_hints"][0]["host"], "codex");
+    assert_eq!(
+        response["approval"]["host_hints"][0]["runtime_tool_name"],
+        "request_user_input"
+    );
+    assert_eq!(response["approval"]["host_hints"][1]["host"], "claude_code");
 }
 
 #[test]

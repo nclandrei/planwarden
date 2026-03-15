@@ -50,7 +50,9 @@ enum Command {
         #[command(subcommand)]
         kind: CreateCommand,
     },
-    #[command(about = "Show the next review section for a draft or approved plan.")]
+    #[command(
+        about = "Show the next review section and structured approval metadata for a draft or approved plan."
+    )]
     ReviewNext(ReviewNextArgs),
     #[command(about = "Mark the current review section as complete.")]
     AdvanceReview(PlanFileArgs),

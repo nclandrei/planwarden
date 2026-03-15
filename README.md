@@ -28,6 +28,9 @@ planwarden create plan --input review.json
 planwarden review-next plans/my-plan.md --format text
 planwarden advance-review plans/my-plan.md
 
+# For host integrations, JSON includes a structured approval block.
+planwarden review-next plans/my-plan.md --format json
+
 # 5. Approve, start, and execute the plan.
 planwarden approve plans/my-plan.md
 planwarden start plans/my-plan.md
@@ -53,6 +56,7 @@ planwarden complete plans/my-plan.md
 
 - The plan file is the source of truth; chat should stay chunked.
 - During review, present only the current section, ask the user for approval or concerns, and do not dump or summarize the full plan.
+- Hosts can use `review-next --format json` and consume the `approval` block instead of scraping the text output for prompts or tool hints.
 - The agent decides whether a concern applies and must justify `applicable = false`.
 - `planwarden` enforces consistency, slice size, and required coverage.
 - Bugfix work must prove red before green.

@@ -28,6 +28,8 @@ pub struct ReviewNextResponse {
     pub plan_status: PlanLifecycleStatus,
     pub progress: ReviewProgressSummary,
     pub focus: Option<ReviewSectionChunk>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approval: Option<ReviewApproval>,
     pub up_next: Vec<ReviewSectionSummary>,
     pub remaining_sections: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,6 +93,38 @@ pub struct ReviewSectionChunk {
     pub id: PlanReviewSectionId,
     pub title: String,
     pub lines: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct ReviewApproval {
+    pub required: bool,
+    pub section_id: PlanReviewSectionId,
+    pub section_title: String,
+    pub prompt: String,
+    pub advance_command: String,
+    pub concerns_require_revision: bool,
+    pub options: Vec<ReviewApprovalOption>,
+    pub host_hints: Vec<ReviewHostHint>,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct ReviewApprovalOption {
+    pub id: String,
+    pub label: String,
+    pub description: String,
+    pub advance_review: bool,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct ReviewHostHint {
+    pub host: String,
+    pub docs_surface: String,
+    pub docs_naming: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_tool_source: Option<String>,
+    pub note: String,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -184,7 +218,8 @@ pub fn review_next(path: &Path, limit: usize) -> Result<ReviewNextResponse> {
     let sections = review_sections(&plan);
     let progress = compute_review_progress(&plan, &sections);
     let (focus, up_next, remaining_sections) = select_review_sections(&plan, &sections, limit);
-    let next_action = review_next_action(path, &plan, remaining_sections);
+    let approval = focus.as_ref().map(|section| review_approval(path, section));
+    let next_action = review_next_action(path, &plan, remaining_sections, focus.is_some());
 
     Ok(ReviewNextResponse {
         path: path.display().to_string(),
@@ -192,6 +227,7 @@ pub fn review_next(path: &Path, limit: usize) -> Result<ReviewNextResponse> {
         plan_status: plan.plan_status,
         progress,
         focus,
+        approval,
         up_next,
         remaining_sections,
         next_action,
@@ -213,7 +249,7 @@ pub fn advance_review(path: &Path) -> Result<ReviewAdvanceResponse> {
     let sections = review_sections(&plan);
     let progress = compute_review_progress(&plan, &sections);
     let remaining_sections = sections.len().saturating_sub(progress.done);
-    let next_action = review_next_action(path, &plan, remaining_sections);
+    let next_action = review_next_action(path, &plan, remaining_sections, false);
 
     Ok(ReviewAdvanceResponse {
         path: path.display().to_string(),
@@ -445,8 +481,9 @@ pub fn render_review_next_text(response: &ReviewNextResponse) -> String {
 
     if let Some(focus) = &response.focus {
         let advance_command = response
-            .next_action
-            .as_deref()
+            .approval
+            .as_ref()
+            .map(|approval| approval.advance_command.as_str())
             .unwrap_or("planwarden advance-review <plan-file>");
         let _ = writeln!(&mut output, "Review Protocol");
         let _ = writeln!(&mut output, "Present only this section in chat.");
@@ -797,13 +834,83 @@ fn chunk_item_from_done_ids(item: &NormalizedPlanItem, done_ids: &[&str]) -> Chu
     }
 }
 
+fn review_approval(path: &Path, section: &ReviewSectionChunk) -> ReviewApproval {
+    ReviewApproval {
+        required: true,
+        section_id: section.id,
+        section_title: section.title.clone(),
+        prompt: format!(
+            "Review only the {} section. Is it correct, do you have concerns, or do you approve it?",
+            section.title
+        ),
+        advance_command: advance_review_command(path),
+        concerns_require_revision: true,
+        options: vec![
+            ReviewApprovalOption {
+                id: "approve".to_string(),
+                label: "Approve section".to_string(),
+                description: "Mark this section reviewed and move to the next section."
+                    .to_string(),
+                advance_review: true,
+            },
+            ReviewApprovalOption {
+                id: "concerns".to_string(),
+                label: "Needs changes".to_string(),
+                description: "Discuss or revise this section before advancing review."
+                    .to_string(),
+                advance_review: false,
+            },
+            ReviewApprovalOption {
+                id: "question".to_string(),
+                label: "Need clarification".to_string(),
+                description: "Answer questions about this section before advancing review."
+                    .to_string(),
+                advance_review: false,
+            },
+        ],
+        host_hints: vec![
+            ReviewHostHint {
+                host: "codex".to_string(),
+                docs_surface: "approval prompt for side-effecting actions".to_string(),
+                docs_naming: "App.tool (for example `Calendar.create_event`)".to_string(),
+                runtime_tool_name: Some("request_user_input".to_string()),
+                runtime_tool_source: Some("current_codex_harness".to_string()),
+                note: "OpenAI's public Codex docs describe approval prompts and app-tool naming, while this runtime exposes structured user questions via `request_user_input`.".to_string(),
+            },
+            ReviewHostHint {
+                host: "claude_code".to_string(),
+                docs_surface: "permissionDecision=\"ask\" and MCP prompt commands".to_string(),
+                docs_naming:
+                    "mcp__<serverName>__<toolName> and /mcp__<serverName>__<promptName>"
+                        .to_string(),
+                runtime_tool_name: Some("AskUserQuestion".to_string()),
+                runtime_tool_source: Some("repo_skill_metadata".to_string()),
+                note: "Claude Code docs describe ask-style permissions and MCP naming, while this repo's Claude-oriented skill metadata refers to `AskUserQuestion`.".to_string(),
+            },
+        ],
+    }
+}
+
+fn advance_review_command(path: &Path) -> String {
+    format!("planwarden advance-review {}", path.display())
+}
+
+fn review_next_command(path: &Path) -> String {
+    format!("planwarden review-next {}", path.display())
+}
+
 fn review_next_action(
     path: &Path,
     plan: &NormalizedPlan,
     remaining_sections: usize,
+    has_focus: bool,
 ) -> Option<String> {
+    if has_focus {
+        return Some(advance_review_command(path));
+    }
+
     if remaining_sections > 0 {
-        Some(format!("planwarden advance-review {}", path.display()))
+        Some(review_next_command(path))
     } else {
         match plan.plan_status {
             PlanLifecycleStatus::Draft => Some(format!("planwarden approve {}", path.display())),
@@ -1128,6 +1235,24 @@ mod tests {
         let first = review_next(&output, 3).expect("review should load");
         assert_eq!(first.progress.total, 7);
         assert_eq!(first.progress.done, 0);
+        assert!(first.approval.is_some());
+        assert_eq!(
+            first
+                .approval
+                .as_ref()
+                .expect("approval should exist")
+                .section_title,
+            "Goal"
+        );
+        assert_eq!(
+            first
+                .approval
+                .as_ref()
+                .expect("approval should exist")
+                .options[0]
+                .id,
+            "approve"
+        );
         assert_eq!(
             first.focus.expect("focus section should exist").id,
             PlanReviewSectionId::Goal
@@ -1144,6 +1269,7 @@ mod tests {
         complete_review(&output);
         let done = review_next(&output, 3).expect("completed review should load");
         assert!(done.focus.is_none());
+        assert!(done.approval.is_none());
         assert_eq!(done.progress.done, done.progress.total);
         assert!(
             done.next_action
