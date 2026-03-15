@@ -1,92 +1,117 @@
 # planwarden
 
-`planwarden` is a CLI planning enforcer for AI agents. The agent explores the repo and gathers facts; `planwarden` validates the planning contract, pushes back on weak slices, writes a durable plan file, walks the user through review one section at a time, and only surfaces execution chunks instead of a wall of text.
+[![Crates.io](https://img.shields.io/crates/v/planwarden.svg)](https://crates.io/crates/planwarden)
+[![Releases](https://img.shields.io/github/v/release/nclandrei/planwarden?label=releases)](https://github.com/nclandrei/planwarden/releases)
+[![Tests](https://github.com/nclandrei/planwarden/actions/workflows/ci.yml/badge.svg)](https://github.com/nclandrei/planwarden/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/nclandrei/planwarden/blob/main/LICENSE)
 
-## Install
+Make AI agents investigate first, plan against a contract, and review work one section at a time.
+
+`planwarden` is a CLI for AI agents. A human points an agent at a repo and a request; the agent uses `planwarden` to turn verified findings into a durable markdown plan file, walk review section by section, and execute from the file instead of improvising in chat.
+
+## Example
+
+A human asks an agent to make a change. The agent can use `planwarden` like this:
 
 ```bash
-# Homebrew (recommended)
-brew install nclandrei/tap/planwarden
+# Inspect the contract after investigating the repo.
+planwarden schema review task
 
-# crates.io
+# Validate a structured findings payload.
+planwarden review task --input findings.json > review.json
+
+# Write the durable task file.
+planwarden create task --input review.json
+
+# Show only the next section for human review.
+planwarden review-next <task-file> --format text
+planwarden advance-review <task-file>
+
+# Once review is complete, execute from the task file.
+planwarden approve <task-file>
+planwarden start <task-file>
+planwarden next <task-file> --format text
+planwarden set-status <task-file> T1 in-progress
+planwarden set-status <task-file> T1 done
+planwarden complete <task-file>
+```
+
+This flow keeps the agent honest: investigate first, ask for the schema, send structured findings, write the durable file, review it in chunks, then execute from that file.
+
+## Installation
+
+Install with Homebrew:
+
+```bash
+brew install nclandrei/tap/planwarden
+```
+
+Or install from crates.io:
+
+```bash
 cargo install planwarden --locked
 ```
 
-## Quick Start
+Prebuilt binaries are available on the [releases page](https://github.com/nclandrei/planwarden/releases).
 
-```bash
-# 1. Investigate first, then ask for the contract.
-planwarden schema review plan
+## Help
 
-# 2. Send structured findings to review.
-planwarden review plan --input findings.json
+```text
+A planning enforcer for AI agents. Investigate first, ask `schema` for the contract, send structured findings to `review`, write the durable plan with `create`, and show only the current chunk with `next`.
 
-# 3. Write the full plan file once review is ready.
-planwarden create plan --input review.json
+Usage: planwarden <COMMAND>
 
-# 4. Review the draft section by section in chat.
-planwarden review-next plans/my-plan.md --format text
-planwarden advance-review plans/my-plan.md
+Commands:
+  review          Validate planning input and return decision/missing/questions/pushback.
+  schema          Show the review contract so an agent knows what JSON to send after investigating.
+  create          Write a durable markdown plan file from normalized review output.
+  review-next     Show the next review section and structured approval metadata for a draft or approved plan.
+  advance-review  Mark the current review section as complete.
+  next            Show only the current plan chunk instead of the whole plan file.
+  set-status      Update one checklist item to todo, in_progress, or done.
+  approve         Mark a draft plan as approved.
+  start           Move an approved plan into execution.
+  complete        Mark an in-progress plan as done once every item is complete.
+  help            Print this message or the help of the given subcommand(s)
 
-# For host integrations, JSON includes a structured approval block.
-planwarden review-next plans/my-plan.md --format json
+Options:
+  -h, --help
+          Print help (see a summary with '-h')
 
-# 5. Approve, start, and execute the plan.
-planwarden approve plans/my-plan.md
-planwarden start plans/my-plan.md
-planwarden next plans/my-plan.md --format text
-planwarden set-status plans/my-plan.md P1 in-progress
-planwarden complete plans/my-plan.md
+Agent flow:
+  1. Investigate the repo and request first.
+  2. Run `planwarden schema review plan|task`.
+  3. Run `planwarden review plan|task` with structured findings.
+  4. Resolve any `missing`, `questions`, and `pushback` before proceeding.
+  5. Run `planwarden create plan|task`.
+  6. Review the draft one section at a time with `planwarden review-next <plan-file> --format text`. Present only that section, ask the user for approval or concerns, discuss or revise if needed, and only then run `planwarden advance-review <plan-file>`. Do not dump the full plan while reviewing.
+  7. Approve and start the plan, then use `planwarden next <plan-file> --format text` for execution chunks.
 ```
 
-## Agent Workflow
+## Review Contract
 
-1. The agent investigates the repo and request.
-2. The agent runs `planwarden schema review plan|task` to see the contract.
-3. The agent sends structured findings to `planwarden review plan|task`.
-4. `planwarden` returns `decision`, `missing`, `questions`, `pushback`, and `normalized_plan`.
-5. The agent resolves any gaps before creating the plan file.
-6. The agent writes the full plan with `planwarden create`.
-7. The agent immediately runs `planwarden review-next <plan-file> --format text`, shows only that section in chat, asks the user to approve it or raise concerns, and only then advances review.
-8. The agent discusses or revises the plan if the user raises concerns, keeps review section-by-section without dumping the whole plan, and repeats until every section is done.
-9. The agent approves and starts the plan only after review is complete, then uses `planwarden next <plan-file> --format text` for execution chunks.
-10. The plan moves through `draft -> approved -> in_progress -> done`.
+`planwarden review plan` and `planwarden review task` accept structured JSON, not free-form planning prose. Ask for the exact contract first:
 
-## Working Contract
+```bash
+planwarden schema review plan
+planwarden schema review task
+```
 
-- The plan file is the source of truth; chat should stay chunked.
-- During review, present only the current section, ask the user for approval or concerns, and do not dump or summarize the full plan.
-- Hosts can use `review-next --format json` and consume the `approval` block instead of scraping the text output for prompts or tool hints.
-- The agent decides whether a concern applies and must justify `applicable = false`.
-- `planwarden` enforces consistency, slice size, and required coverage.
+The repository includes an example payload at [`examples/review-plan.json`](examples/review-plan.json).
+
+`create` writes markdown files under `plans/` or `plans/tasks/`. Those files become the source of truth for review and execution.
+
+## What It Enforces
+
+- The agent investigates before it plans.
+- The plan file is the source of truth; chat stays chunked.
+- During review, the agent shows only the current section and asks for approval or concerns.
 - Bugfix work must prove red before green.
+- `review` pushes back on oversized slices, missing coverage, and inconsistent concern waivers.
 
-## Commands
+## Host Integrations
 
-- `planwarden schema review plan|task`
-- `planwarden review plan|task`
-- `planwarden create plan|task`
-- `planwarden review-next <plan-file>`
-- `planwarden advance-review <plan-file>`
-- `planwarden next <plan-file>`
-- `planwarden approve <plan-file>`
-- `planwarden start <plan-file>`
-- `planwarden set-status <plan-file> <item-id> <todo|in-progress|done>`
-- `planwarden complete <plan-file>`
-
-## Release Automation
-
-Pushing a new version to `main` can be automated the same way as `distill`:
-
-- build release artifacts with `cargo-dist`
-- publish the crate to crates.io
-- update the Homebrew formula in `nclandrei/homebrew-tap`
-- publish the GitHub release
-
-Required GitHub Actions secrets:
-
-- `CARGO_REGISTRY_TOKEN`: crates.io publish token for `planwarden`
-- `HOMEBREW_TAP_TOKEN`: GitHub token with push access to `nclandrei/homebrew-tap`
+`planwarden review-next <plan-file> --format json` returns structured approval metadata for hosts. That response includes an `approval` block with the prompt, response options, and the command to advance review, so hosts do not need to scrape the text renderer.
 
 ## License
 
