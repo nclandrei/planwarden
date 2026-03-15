@@ -444,6 +444,31 @@ pub fn render_review_next_text(response: &ReviewNextResponse) -> String {
     let _ = writeln!(&mut output);
 
     if let Some(focus) = &response.focus {
+        let advance_command = response
+            .next_action
+            .as_deref()
+            .unwrap_or("planwarden advance-review <plan-file>");
+        let _ = writeln!(&mut output, "Review Protocol");
+        let _ = writeln!(&mut output, "Present only this section in chat.");
+        let _ = writeln!(
+            &mut output,
+            "Then ask the user whether it is correct, whether they have concerns, or whether they approve this section."
+        );
+        let _ = writeln!(
+            &mut output,
+            "Use your question tool if available; otherwise ask in plain chat."
+        );
+        let _ = writeln!(
+            &mut output,
+            "If they raise concerns, discuss or revise the plan before advancing."
+        );
+        let _ = writeln!(
+            &mut output,
+            "Do not dump or summarize the rest of the plan while this section is under review."
+        );
+        let _ = writeln!(&mut output, "After approval, run: {advance_command}");
+        let _ = writeln!(&mut output);
+
         let _ = writeln!(&mut output, "Review Now");
         let _ = writeln!(&mut output, "{}", focus.title);
         for line in &focus.lines {

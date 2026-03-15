@@ -91,6 +91,8 @@ fn schema_review_plan_text_is_agent_facing() {
         .success()
         .stdout(predicate::str::contains("Top-level fields"))
         .stdout(predicate::str::contains("Example payload"))
+        .stdout(predicate::str::contains("ask the user"))
+        .stdout(predicate::str::contains("Do not dump"))
         .stdout(predicate::str::contains(
             "planwarden review-next <plan-file> --format text",
         ));
@@ -128,6 +130,7 @@ fn create_help_points_to_next_chunk_flow() {
         .args(["create", "plan", "--help"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("ask the user"))
         .stdout(predicate::str::contains(
             "planwarden review-next <plan-file> --format text",
         ));
@@ -255,6 +258,11 @@ fn review_next_text_output_is_chunked_by_section() {
         ))
         .stdout(predicate::str::contains("Review Now"))
         .stdout(predicate::str::contains("Goal"))
+        .stdout(predicate::str::contains("Present only this section"))
+        .stdout(predicate::str::contains("ask the user"))
+        .stdout(predicate::str::contains(
+            "Do not dump or summarize the rest of the plan",
+        ))
         .stdout(predicate::str::contains("Up Next Review"))
         .stdout(predicate::str::contains("Facts"));
 }

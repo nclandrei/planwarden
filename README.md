@@ -44,13 +44,15 @@ planwarden complete plans/my-plan.md
 4. `planwarden` returns `decision`, `missing`, `questions`, `pushback`, and `normalized_plan`.
 5. The agent resolves any gaps before creating the plan file.
 6. The agent writes the full plan with `planwarden create`.
-7. The agent immediately runs `planwarden review-next <plan-file> --format text`, shows only that section in chat, and advances review until every section is done.
-8. The agent approves and starts the plan only after review is complete, then uses `planwarden next <plan-file> --format text` for execution chunks.
-9. The plan moves through `draft -> approved -> in_progress -> done`.
+7. The agent immediately runs `planwarden review-next <plan-file> --format text`, shows only that section in chat, asks the user to approve it or raise concerns, and only then advances review.
+8. The agent discusses or revises the plan if the user raises concerns, keeps review section-by-section without dumping the whole plan, and repeats until every section is done.
+9. The agent approves and starts the plan only after review is complete, then uses `planwarden next <plan-file> --format text` for execution chunks.
+10. The plan moves through `draft -> approved -> in_progress -> done`.
 
 ## Working Contract
 
 - The plan file is the source of truth; chat should stay chunked.
+- During review, present only the current section, ask the user for approval or concerns, and do not dump or summarize the full plan.
 - The agent decides whether a concern applies and must justify `applicable = false`.
 - `planwarden` enforces consistency, slice size, and required coverage.
 - Bugfix work must prove red before green.

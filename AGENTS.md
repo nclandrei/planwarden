@@ -14,7 +14,9 @@ Use `planwarden` as a schema-first planning workflow for AI agents. The agent in
 6. Run `planwarden create plan|task` once review is ready.
 7. Do not paste the full plan file into chat unless the user explicitly asks for it.
 8. Immediately run `planwarden review-next <plan-file> --format text` and show only that section in chat.
-9. Advance review with `planwarden advance-review <plan-file>` until every review section is complete, then `approve`, `start`, `set-status`, and `complete`.
+9. Ask the user whether that section is fine, whether they have concerns, or whether they approve it. Use the host's question tool if one exists; otherwise ask in plain chat. Do not dump or summarize the full plan while review is still in progress.
+10. If the user raises concerns, discuss or update the plan until that section is accepted. Only then run `planwarden advance-review <plan-file>`.
+11. Repeat until every review section is complete, then `approve`, `start`, `set-status`, and `complete`.
 
 ## Planning Contract
 
