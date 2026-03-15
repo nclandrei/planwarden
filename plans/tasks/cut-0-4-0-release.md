@@ -3,7 +3,7 @@
 <!-- planwarden:data:start -->
 {
   "kind": "task",
-  "plan_status": "in_progress",
+  "plan_status": "done",
   "title": "Cut 0.4.0 release",
   "goal": "Bump `planwarden` to `0.4.0`, land the change on `main`, and manually dispatch the existing release workflow for `v0.4.0`.",
   "facts": [
@@ -96,7 +96,7 @@
   "items": [
     {
       "id": "T1",
-      "status": "in_progress",
+      "status": "done",
       "title": "Bump, land, and dispatch the 0.4.0 release",
       "summary": "Update the crate version, verify the repo, land the change to `main` with jj, and manually trigger the existing GitHub release workflow for the new version.",
       "dependencies": [],
@@ -116,7 +116,7 @@ Bump `planwarden` to `0.4.0`, land the change on `main`, and manually dispatch t
 
 ## Plan Status
 
-- in_progress
+- done
 
 ## Facts
 
@@ -162,7 +162,7 @@ Bump `planwarden` to `0.4.0`, land the change on `main`, and manually dispatch t
 
 ## Checklist
 
-- [-] T1 Bump, land, and dispatch the 0.4.0 release
+- [x] T1 Bump, land, and dispatch the 0.4.0 release
   Summary: Update the crate version, verify the repo, land the change to `main` with jj, and manually trigger the existing GitHub release workflow for the new version.
   Dependencies: none
   Acceptance:
